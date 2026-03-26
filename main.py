@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Header # type: ignore
 from passlib.context import CryptContext # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
+import uvicorn
 from fastapi.staticfiles import StaticFiles # type: ignore
 from fastapi.responses import FileResponse # type: ignore
 from pydantic import BaseModel, Field, EmailStr # type: ignore
@@ -482,7 +483,8 @@ async def obtener_posiciones(grupo_id: int, db: sqlite3.Connection = Depends(get
                     c_comp = comp.get('competitors', [])
                     if len(c_comp) >= 2:
                         reales[str(ev.get('id', ''))] = (int(c_comp[0].get('score', 0)), int(c_comp[1].get('score', 0)))
-        except Exception: pass
+        except Exception as e:
+            print(f"Error fetching ESPN data: {e}")
     
     tabla: List[UserStats] = []
     for m in miembros:
@@ -530,7 +532,8 @@ async def obtener_posiciones(grupo_id: int, db: sqlite3.Connection = Depends(get
         for t in tabla: 
             db.execute("INSERT OR REPLACE INTO puntos_historial (grupo_id, correo_usuario, puntos) VALUES (?,?,?)", (grupo_id, t.correo, t.puntos))
         db.commit()
-    except Exception: pass
+    except Exception as e:
+        print(f"Error updating points history: {e}")
     return {"posiciones": tabla_dicts}
 
 @app.get("/api/posiciones/historial/{grupo_id}")
@@ -552,6 +555,5 @@ def get_sw(): return FileResponse('sw.js', media_type='application/javascript')
 def leer_index(): return FileResponse("index.html")
 
 if __name__ == "__main__":
-    import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
