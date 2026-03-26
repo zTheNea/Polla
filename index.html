@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Ccircle cx='256' cy='256' r='256' fill='%232563eb'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' font-family='sans-serif' font-size='256' fill='white'%3E%E2%9A%BD%3C/text%3E%3C/svg%3E">
+    <title>Polla Futbolera — Predicciones Deportivas y Ranking</title>
+    <meta name="description" content="Únete a la mejor Polla Futbolera. Crea tu grupo, haz tus pronósticos de la Champions, Libertadores y Liga BetPlay, y compite por el primer lugar.">
+    <meta name="keywords" content="fútbol, polla, pronósticos, predicciones, champions, libertadores, betplay">
+    <meta property="og:title" content="Polla Futbolera — ¡Gana con tus pronósticos!">
+    <meta property="og:description" content="Compite con tus amigos en la plataforma más segura y rápida de predicciones deportivas.">
+    <meta property="og:image" content="/js/logo-social.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: 'var(--color-primary)',
+                            50: 'var(--color-primary-50)',
+                            100: 'var(--color-primary-100)',
+                            200: 'var(--color-primary-200)',
+                            500: 'var(--color-primary)',
+                            700: 'var(--color-primary-700)',
+                            800: 'var(--color-primary-800)',
+                            900: 'var(--color-primary-900)',
+                            contrast: 'var(--color-primary-contrast)'
+                        },
+                        secondary: 'var(--color-secondary)'
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;900&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" crossorigin="anonymous"></script>
+    <script>
+        // Aplicar tema guardado inmediatamente para evitar FOUC
+        (function() {
+            const hex = localStorage.getItem('tema-color-hex') || '#2563eb';
+            
+            function adjustColor(hex, amt) {
+                let col = hex.replace('#','');
+                let r = parseInt(col.substring(0,2),16);
+                let g = parseInt(col.substring(2,4),16);
+                let b = parseInt(col.substring(4,6),16);
+                r = Math.max(0, Math.min(255, r + amt));
+                g = Math.max(0, Math.min(255, g + amt));
+                b = Math.max(0, Math.min(255, b + amt));
+                const nr = r.toString(16).padStart(2,'0');
+                const ng = g.toString(16).padStart(2,'0');
+                const nb = b.toString(16).padStart(2,'0');
+                return `#${nr}${ng}${nb}`;
+            }
+
+            function getContrast(hex) {
+                const r = parseInt(hex.substring(1,3), 16);
+                const g = parseInt(hex.substring(3,5), 16);
+                const b = parseInt(hex.substring(5,7), 16);
+                const yiq = ((r*299)+(g*587)+(b*114))/1000;
+                return (yiq >= 128) ? '#000000' : '#ffffff';
+            }
+
+            const root = document.documentElement;
+            root.style.setProperty('--color-primary', hex);
+            root.style.setProperty('--color-primary-50', adjustColor(hex, 180));
+            root.style.setProperty('--color-primary-100', adjustColor(hex, 150));
+            root.style.setProperty('--color-primary-200', adjustColor(hex, 100));
+            root.style.setProperty('--color-primary-700', adjustColor(hex, -30));
+            root.style.setProperty('--color-primary-800', adjustColor(hex, -60));
+            root.style.setProperty('--color-primary-900', adjustColor(hex, -90));
+            root.style.setProperty('--color-primary-contrast', getContrast(hex));
+            root.style.setProperty('--color-secondary', adjustColor(hex, -30));
+        })();
+    </script>
+    <style>
+        :root {
+            /* Variables dinamicas inicializadas por el script en el head */
+            --color-fondo: #0f172a;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+        }
+
+        .pantalla {
+            display: none;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+        }
+
+        .pantalla.activa {
+            display: flex;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .form-panel {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .oculto {
+            display: none;
+            opacity: 0;
+        }
+
+        .fade-in-up {
+            animation: fadeInUp 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(15px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animar-entrada {
+            animation: fadeInUp 0.5s ease-out forwards;
+            opacity: 0;
+        }
+
+        .tarjeta-partido {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tarjeta-partido:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        #theme-transition-layer {
+            position: fixed;
+            top: 2rem;
+            right: 2rem;
+            width: 3rem;
+            height: 3rem;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 45;
+            transition: transform 0.6s cubic-bezier(0.645, 0.045, 0.355, 1), background-color 0s;
+            transform: scale(0);
+        }
+
+        .wave-expand {
+            transform: scale(150) !important;
+            z-index: 49 !important;
+        }
+
+        html,
+        body {
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+        }
+
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        input[type=number] {
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+
+        .dark input:-webkit-autofill,
+        .dark input:-webkit-autofill:hover,
+        .dark input:-webkit-autofill:focus,
+        .dark input:-webkit-autofill:active {
+            -webkit-box-shadow: 0 0 0 30px #1f2937 inset !important;
+            -webkit-text-fill-color: white !important;
+            transition: background-color 5000s ease-in-out 0s;
+        }
+    </style>
+</head>
+
+<body
+    class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen transition-colors duration-300 relative pb-20">
+
+    <button id="theme-toggle"
+        class="fixed bottom-6 right-6 md:bottom-8 md:right-8 bg-white dark:bg-gray-800 p-4 rounded-full shadow-xl border border-gray-100 dark:border-gray-700 hover:scale-110 transition-transform duration-300 z-50" type="button" aria-label="Cambiar tema de color">
+        <svg id="theme-toggle-dark-icon" class="w-6 h-6 hidden text-gray-800" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+        </svg>
+        <svg id="theme-toggle-light-icon" class="w-6 h-6 hidden text-yellow-400" fill="currentColor"
+            viewBox="0 0 20 20">
+            <path
+                d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4.22 4.22a1 1 0 011.415 0l.708.708a1 1 0 01-1.414 1.414l-.708-.708a1 1 0 010-1.414zM16 10a1 1 0 011 1h1a1 1 0 110-2h-1a1 1 0 01-1 1zm-4.22 4.22a1 1 0 010 1.415l-.708-.708a1 1 0 01-1.414-1.414l.708-.708a1 1 0 011.415 0zM10 16a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm-4.22-4.22a1 1 0 01-1.415 0l-.708-.708a1 1 0 011.414-1.414l.708-.708a1 1 0 01-1.415 0zM10 6a4 4 0 100 8 4 4 0 000-8z">
+            </path>
+        </svg>
+    </button>
+    <div id="theme-transition-layer"></div>
+
+    <!-- Banner de sin conexión (visible solo cuando navigator.onLine === false) -->
+    <div id="offline-banner"
+        class="hidden fixed top-0 inset-x-0 z-[9997] bg-orange-500 text-white text-center text-xs font-bold py-2 px-4 flex items-center justify-center gap-2">
+        <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                clip-rule="evenodd" />
+        </svg>
+        Sin conexión a internet &mdash; los cambios no se guardarán hasta reconectar.
+    </div>
+
+    <div id="vista-login"
+        class="pantalla activa flex-col items-center justify-center min-h-screen p-4 sm:p-6 w-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
+        <div class="text-center mb-6 sm:mb-8 mt-8 sm:mt-0">
+            <h1
+                class="text-4xl sm:text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-primary to-primary-700 drop-shadow-sm leading-tight">
+                Polla Futbolera</h1>
+            <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 font-medium mt-2">Juega, compite y demuestra
+                tu pasión</p>
+        </div>
+
+        <div
+            class="bg-white dark:bg-gray-800 p-6 sm:p-10 rounded-[2rem] shadow-2xl w-full max-w-[90%] sm:max-w-md border border-gray-100 dark:border-gray-700 relative overflow-hidden">
+            <div id="panel-login" class="form-panel">
+                <h2 class="text-3xl font-black text-gray-800 dark:text-white mb-2 tracking-tight text-center">
+                    ¡Bienvenido! ⚽</h2>
+                <p id="subtitulo-login" class="text-gray-500 dark:text-gray-400 text-sm mb-8 text-center font-medium">
+                    Ingresa para pronosticar y ganar.</p>
+
+                <form id="form-auth" onsubmit="procesarAuth(event)" class="space-y-5">
+                    <div id="contenedor-nombre"
+                        class="overflow-hidden max-h-0 opacity-0 transition-all duration-500 ease-in-out">
+                        <label
+                            class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 ml-1">Usuario</label>
+                        <input id="nombre-input" type="text" placeholder="Ej: Lionel Messi" minlength="3" maxlength="30"
+                            class="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white dark:placeholder-gray-400">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 ml-1">Correo
+                            Electrónico</label>
+                        <input id="correo-input" type="email" required placeholder="tu@correo.com"
+                            class="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white dark:placeholder-gray-400">
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 ml-1">Contraseña</label>
+                        <div class="relative">
+                            <input id="password-input" type="password" required placeholder="••••••••" maxlength="72"
+                                class="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white dark:placeholder-gray-400 pr-12"
+                                oninput="validarPasswordDinamicamente()">
+                            <button type="button" onclick="togglePasswordVisibility()"
+                                class="absolute inset-y-0 right-0 flex items-center pr-4 text-gray-400 hover:text-primary dark:hover:text-primary-700 transition-colors focus:outline-none">
+                                <svg id="icono-ojo" class="w-6 h-6" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21">
+                                    </path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="ayuda-password"
+                            class="hidden mt-3 text-[11px] font-bold text-gray-400 grid-cols-2 gap-2 pl-1">
+                            <div id="req-num" class="flex items-center gap-1.5 transition-colors"><span
+                                    class="w-3.5 h-3.5 rounded-full bg-gray-200 dark:bg-gray-600 text-transparent flex items-center justify-center text-[8px] transition-all">✓</span>
+                                Un número</div>
+                            <div id="req-may" class="flex items-center gap-1.5 transition-colors"><span
+                                    class="w-3.5 h-3.5 rounded-full bg-gray-200 dark:bg-gray-600 text-transparent flex items-center justify-center text-[8px] transition-all">✓</span>
+                                Una mayúscula</div>
+                            <div id="req-min" class="flex items-center gap-1.5 transition-colors"><span
+                                    class="w-3.5 h-3.5 rounded-full bg-gray-200 dark:bg-gray-600 text-transparent flex items-center justify-center text-[8px] transition-all">✓</span>
+                                Una minúscula</div>
+                            <div id="req-len" class="flex items-center gap-1.5 transition-colors"><span
+                                    class="w-3.5 h-3.5 rounded-full bg-gray-200 dark:bg-gray-600 text-transparent flex items-center justify-center text-[8px] transition-all">✓</span>
+                                Mínimo 8 caracteres</div>
+                        </div>
+                    </div>
+
+                    <div id="contenedor-terminos"
+                        class="hidden mt-4 flex items-start gap-2 bg-primary-50/50 dark:bg-primary-900/10 p-3 rounded-xl border border-primary-100 dark:border-primary-900/30">
+                        <input type="checkbox" id="check-datos"
+                            class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-primary cursor-pointer">
+                        <label for="check-datos" class="text-[11px] text-gray-600 dark:text-gray-400 leading-tight">
+                            Al registrarme acepto nuestras <a href="#"
+                                class="font-bold text-primary hover:text-primary transition">Políticas de
+                                privacidad</a> y <a href="#"
+                                class="font-bold text-primary hover:text-primary transition">Términos de
+                                servicios</a>.
+                        </label>
+                    </div>
+
+                    <button id="btn-submit" type="submit"
+                        class="w-full bg-primary hover:opacity-90 text-primary-contrast font-black py-4 rounded-2xl shadow-lg shadow-primary-500/30 transition transform active:scale-95 text-lg mt-2">
+                        Iniciar Sesión
+                    </button>
+                </form>
+
+                <p id="texto-alterno" class="mt-8 text-center text-sm font-medium text-gray-500 dark:text-gray-400">
+                    ¿No tienes cuenta? <button type="button" onclick="cambiarModoAuth('registro')"
+                        class="text-primary dark:text-secondary font-bold hover:underline">Regístrate</button>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div id="vista-dashboard" class="pantalla flex-col min-h-screen w-full bg-gray-50 dark:bg-gray-900">
+        <header
+            class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+                <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 transition" onclick="abrirPerfil()">
+                    <div id="avatar-dashboard"
+                        class="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-full flex items-center justify-center text-white font-bold text-lg shadow-md">
+                        👤</div>
+                    <h2 class="text-lg font-black text-gray-800 dark:text-white leading-tight"><span
+                            id="nombre-dashboard">Usuario</span> 👋</h2>
+                </div>
+                <div class="flex items-center gap-1 sm:gap-3">
+                    <button onclick="abrirPerfil()" type="button" aria-label="Ajustes de perfil"
+                        class="text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 p-2.5 rounded-xl transition flex items-center gap-2 font-bold text-sm">
+                        ⚙️ <span class="hidden sm:inline">Ajustes</span>
+                    </button>
+                    <button onclick="cerrarSesion()"
+                        class="text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/40 px-3 sm:px-4 py-2 rounded-xl transition flex items-center gap-2">
+                        <span class="hidden sm:inline">Cerrar Sesión</span> 🚪
+                    </button>
+                </div>
+            </div>
+        </header>
+        <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+            <h3 class="text-2xl sm:text-3xl font-black text-gray-800 dark:text-white mb-8">Mis Grupos Futboleros</h3>
+            <div id="contenedor-grupos" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+        </main>
+    </div>
+
+    <div id="vista-perfil" class="pantalla flex-col min-h-screen w-full bg-gray-50 dark:bg-gray-900">
+        <header
+            class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+            <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+                <div class="flex items-center">
+                    <button onclick="cambiarPantalla('vista-dashboard')"
+                        class="text-primary hover:bg-primary-50 dark:hover:bg-primary-900/30 p-2 rounded-xl transition flex items-center gap-2 font-bold mr-4">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                        </svg>
+                        <span>Volver</span>
+                    </button>
+                    <h2 class="text-xl font-black text-gray-800 dark:text-white leading-tight">Ajustes de Perfil</h2>
+                </div>
+            </div>
+        </header>
+
+        <main class="flex-grow max-w-2xl mx-auto px-4 py-8 w-full space-y-6">
+            <!-- SECCIÓN 1: MI IDENTIDAD -->
+            <div class="bg-white dark:bg-gray-800 rounded-[2.5rem] p-8 shadow-xl shadow-primary-500/5 border border-gray-100 dark:border-gray-700/50 animar-entrada relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-primary-500/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+                
+                <div class="flex flex-col items-center">
+                    <div class="relative group cursor-pointer mb-6" onclick="toggleSelectorAvatar()">
+                        <div id="perfil-avatar-preview" class="w-28 h-28 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center text-5xl shadow-inner border-4 border-white dark:border-gray-800 transition transform group-hover:scale-105">👤</div>
+                        <div class="absolute bottom-1 right-1 bg-primary text-primary-contrast shadow-lg shadow-primary/20 transition transform active:scale-95 transition-colors duration-300">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                        </div>
+                    </div>
+                    
+                    <div class="w-full space-y-4">
+                        <div class="relative">
+                            <label class="block text-[10px] font-black text-primary uppercase tracking-widest ml-4 mb-1">Nombre Público</label>
+                            <input id="perfil-nombre-input" type="text" placeholder="Tu nombre" minlength="3" maxlength="30"
+                                class="w-full px-6 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-bold text-gray-800 dark:text-white">
+                        </div>
+                        
+                        <div class="relative opacity-60">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4 mb-1">Correo (Cuenta única)</label>
+                            <div id="perfil-correo-display" class="w-full px-6 py-4 rounded-2xl bg-gray-100 dark:bg-gray-800/50 border border-transparent font-medium text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                                <span>-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Selector de Avatar Moderno (Oculto inicialmente o modal) -->
+                <div id="selector-avatar-container" class="mt-8 pt-8 border-t border-gray-100 dark:border-gray-700 hidden">
+                    <h4 class="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Elige tu Avatar</h4>
+                    <div class="grid grid-cols-6 sm:grid-cols-9 gap-2" id="lista-avatars">
+                        <!-- Generado por JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN 2: PERSONALIZACIÓN -->
+            <div class="bg-white dark:bg-gray-800 rounded-[2.5rem] p-8 shadow-xl shadow-primary-500/5 border border-gray-100 dark:border-gray-700/50 animar-entrada" style="animation-delay: 0.1s">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-xl text-purple-600 dark:text-purple-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a1 1 0 010 2H5v12a2 2 0 002 2h12a2 2 0 002-2V5h-4a1 1 0 010-2h4a2 2 0 012 2v12a4 4 0 01-4 4H7z"></path></svg>
+                    </div>
+                    <h3 class="font-black text-lg text-gray-800 dark:text-white">Apariencia</h3>
+                </div>
+
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Color Personalizado (Prisma)</label>
+                        <div class="flex items-center gap-4 bg-gray-50 dark:bg-gray-700/30 p-4 rounded-3xl border border-gray-100 dark:border-gray-700">
+                            <div class="relative w-16 h-16 shrink-0 group">
+                                <script>
+                                    // Inicializar valor del picker con el tema guardado
+                                    document.write(`<input type="color" id="color-picker" value="${localStorage.getItem('tema-color-hex') || '#2563eb'}" oninput="aplicarColorPersonalizado(this.value)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">`);
+                                </script>
+                                <div id="color-preview-circle" class="w-full h-full rounded-2xl bg-primary shadow-lg border-4 border-white dark:border-gray-800 transition-transform group-hover:scale-105"></div>
+                                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                    <svg class="w-6 h-6 text-white drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a1 1 0 01.8.4l2.7 3.6 2.7-3.6a1 1 0 01.8-.4h4a2 2 0 012 2v12a4 4 0 01-4 4H7z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="flex-1">
+                                <p class="text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Toca el recuadro para elegir</p>
+                                <p class="text-[10px] text-gray-400 leading-tight">Mueve el selector para pintar toda tu plataforma con tu color favorito.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN 3: PREFERENCIAS -->
+            <div class="bg-white dark:bg-gray-800 rounded-[2.5rem] p-8 shadow-xl shadow-primary-500/5 border border-gray-100 dark:border-gray-700/50 animar-entrada" style="animation-delay: 0.2s">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="p-2 bg-primary-100 dark:bg-primary-900/30 rounded-xl text-primary dark:text-secondary">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                    </div>
+                    <h3 class="font-black text-lg text-gray-800 dark:text-white">Preferencias</h3>
+                </div>
+
+                <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/30 rounded-2xl">
+                    <div>
+                        <p class="font-bold text-gray-800 dark:text-gray-200 text-sm">Alertas de Pronóstico</p>
+                        <p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">Te avisaremos antes de que cierren los partidos.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="check-alertas" class="sr-only peer" onchange="window.verificarPermisoNotificaciones(this.checked)">
+                        <div class="w-12 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- SECCIÓN 4: SEGURIDAD -->
+            <div class="bg-white dark:bg-gray-800 rounded-[2.5rem] p-8 shadow-xl shadow-primary-500/5 border border-gray-100 dark:border-gray-700/50 animar-entrada" style="animation-delay: 0.3s">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-xl text-amber-600 dark:text-amber-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    </div>
+                    <h3 class="font-black text-lg text-gray-800 dark:text-white">Seguridad</h3>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="relative">
+                        <input id="perfil-pass-actual" type="password" placeholder="Contraseña actual"
+                            class="w-full px-6 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white pr-14">
+                        <button type="button" onclick="toggleVisibilidadPassPerfil('perfil-pass-actual', 'btn-eye-actual')" class="absolute inset-y-0 right-0 pr-6 flex items-center text-gray-400">
+                            <svg id="btn-eye-actual" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        </button>
+                    </div>
+                    <div class="relative">
+                        <input id="perfil-pass-nueva" type="password" placeholder="Nueva contraseña" maxlength="72"
+                            class="w-full px-6 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white pr-14">
+                        <button type="button" onclick="toggleVisibilidadPassPerfil('perfil-pass-nueva', 'btn-eye-nueva')" class="absolute inset-y-0 right-0 pr-6 flex items-center text-gray-400">
+                            <svg id="btn-eye-nueva" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        </button>
+                    </div>
+                    <p class="text-[10px] text-gray-400 ml-4">Deja en blanco si no deseas cambiarla.</p>
+                </div>
+                
+                <button onclick="cerrarSesion()" class="mt-8 w-full py-4 rounded-2xl border-2 border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-300 font-bold hover:bg-gray-50 dark:hover:bg-gray-700/50 transition flex items-center justify-center gap-2 text-sm">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    Cerrar Sesión Activa
+                </button>
+            </div>
+
+            <!-- SECCIÓN 5: ZONA DE PELIGRO -->
+            <div class="bg-red-50 dark:bg-red-900/10 rounded-[2.5rem] p-8 border border-red-100 dark:border-red-900/20 animar-entrada" style="animation-delay: 0.4s">
+                <h3 class="font-black text-lg text-red-600 dark:text-red-400 mb-2 flex items-center gap-2">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 17c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    Borrar Cuenta
+                </h3>
+                <p class="text-xs text-red-500/80 dark:text-red-400/80 mb-6">Esta acción es irreversible. Se perderán todos tus puntos y pronósticos para siempre.</p>
+                <button onclick="eliminarCuenta()" class="bg-red-600 text-white font-black py-4 px-8 rounded-2xl hover:bg-red-700 transition shadow-lg shadow-red-500/20 text-sm active:scale-95 w-full">
+                    ELIMINAR MI CUENTA DEFINITIVAMENTE
+                </button>
+            </div>
+
+            <div class="h-20 sm:hidden"></div> <!-- Espacio para botón flotante móvil -->
+
+            <button onclick="guardarPerfil()" class="w-full bg-primary hover:opacity-90 text-primary-contrast font-black py-5 rounded-[2rem] shadow-2xl shadow-primary/40 transition transform active:scale-95 text-lg mt-8 animar-entrada" style="animation-delay: 0.5s">
+                💾 GUARDAR CAMBIOS
+            </button>
+        </main>
+    </div>
+        </main>
+    </div>
+
+    <div id="vista-grupo" class="pantalla flex-col min-h-screen w-full bg-gray-100 dark:bg-gray-900">
+        <header
+            class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+            <div class="max-w-7xl mx-auto flex items-center h-16 px-2">
+                <!-- Extremo Izquierdo: Volver -->
+                <button onclick="cambiarPantalla('vista-dashboard')" class="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-primary transition active:scale-95 shrink-0">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                
+                <!-- Cuerpo: Título e ID -->
+                <div class="flex-1 min-w-0 px-1">
+                    <h2 id="sala-nombre-grupo" class="text-base font-black text-gray-800 dark:text-white leading-tight truncate">Cargando...</h2>
+                    <button onclick="compartirGrupo()" id="sala-codigo-grupo" class="text-[9px] font-bold text-primary dark:text-secondary uppercase tracking-widest hover:opacity-70 transition block truncate">
+                        ID: ---
+                    </button>
+                </div>
+
+                <!-- Extremo Derecho: Compartir y Chat -->
+                <div class="flex items-center shrink-0 px-1 gap-1">
+                    <button onclick="compartirGrupo()" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition hover:bg-primary-50 dark:hover:bg-primary-900/30 hover:text-primary active:scale-95 border border-gray-100 dark:border-gray-600" title="Compartir Grupo">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
+                    </button>
+                    <button onclick="toggleChat()" class="relative w-10 h-10 flex items-center justify-center bg-primary text-primary-contrast rounded-full transition shadow-lg shadow-primary/20 active:scale-95 group">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                        <span id="notif-chat" class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800 hidden animate-pulse"></span>
+                    </button>
+                </div>
+            </div>
+        </header>
+        <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
+            <div class="max-w-3xl mx-auto space-y-6">
+
+
+
+            <div id="contenedor-partidos"></div>
+            </div>
+        </main>
+    </div>
+
+    <div id="vista-partido" class="pantalla flex-col min-h-screen w-full bg-gray-100 dark:bg-gray-900">
+        <header
+            class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+            <div class="max-w-7xl mx-auto flex items-center h-16 px-2">
+                <!-- Extremo Izquierdo: Volver -->
+                <button onclick="cambiarPantalla('vista-grupo')" class="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-primary transition active:scale-95 shrink-0">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                
+                <!-- Cuerpo: Título -->
+                <div class="flex-1 min-w-0 px-2">
+                    <h2 class="text-base font-black text-gray-800 dark:text-white leading-tight truncate">Detalles del Partido</h2>
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Polla Futbolera v2.0</p>
+                </div>
+            </div>
+        </header>
+        <main class="flex-grow max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
+            <!-- Atajos rápidos (Contextual v2.0) -->
+            <div id="atajos-pronosticos" class="flex flex-wrap gap-2 mb-6 bg-primary-50/50 dark:bg-primary-100/10 p-4 rounded-3xl border border-primary-100/50 dark:border-blue-800/30 shadow-sm animar-entrada">
+                <span class="w-full text-[10px] font-black text-primary uppercase tracking-widest mb-2 text-center">Ayuda de Pronóstico:</span>
+                <button onclick="luckyPredict()" class="flex-1 bg-white dark:bg-gray-800 text-xs font-black py-3 px-3 rounded-2xl border border-primary/20 dark:border-blue-800 text-primary dark:text-secondary hover:bg-primary hover:text-white transition shadow-sm active:scale-95">🎲 Lucky Predict</button>
+                <button onclick="logicPredict()" class="flex-1 bg-white dark:bg-gray-800 text-xs font-black py-3 px-3 rounded-2xl border border-primary/20 dark:border-blue-800 text-primary dark:text-secondary hover:bg-primary hover:text-white transition shadow-sm active:scale-95">📊 Logic (1-0)</button>
+            </div>
+            <div id="info-partido-dinamica"></div>
+        </main>
+    </div>
+
+    <div id="modal-crear"
+        class="modal-bg fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm hidden opacity-0 transition-opacity duration-300 px-4">
+        <div
+            class="modal-content bg-white dark:bg-gray-800 rounded-[2rem] shadow-2xl w-full max-w-lg p-6 sm:p-8 transform scale-95 transition-transform duration-300">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-black text-gray-800 dark:text-white">Nuevo Juego</h3>
+                <button onclick="cerrarModal('modal-crear')"
+                    class="text-gray-400 hover:text-red-500 bg-gray-100 dark:bg-gray-700 hover:bg-red-50 rounded-full p-2 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+            <div class="space-y-6">
+                <div class="bg-gray-50 dark:bg-gray-700/50 p-5 rounded-2xl border border-gray-200 dark:border-gray-600">
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Unirse con
+                        Código</label>
+            <div class="flex gap-4">
+                        <input id="codigo-unirse-input" type="text" placeholder="Ej: X7A9B"
+                            class="w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none uppercase font-bold text-center dark:text-white focus:border-primary">
+                        <button onclick="unirseAGrupo()"
+                            class="bg-gray-800 hover:bg-black dark:bg-gray-600 dark:hover:bg-gray-500 text-white font-bold px-6 rounded-xl transition">Unirse</button>
+                    </div>
+                </div>
+                <div class="bg-primary-50 dark:bg-primary-900/20 p-5 rounded-2xl border border-primary/20 dark:border-primary-900/30">
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Nombre del
+                        Grupo</label>
+                    <input id="nombre-grupo-input" type="text" placeholder="Ej: Amigos del Barrio" minlength="3"
+                        maxlength="30"
+                        class="w-full px-4 py-3 mb-4 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none dark:text-white focus:border-primary">
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Competición</label>
+                    <select id="liga-grupo-input"
+                        class="w-full px-4 py-3 mb-5 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none font-medium cursor-pointer dark:text-white focus:border-primary">
+                        <option value="champions">🏆 UEFA Champions League</option>
+                        <option value="libertadores">🌎 Copa Libertadores</option>
+                        <option value="betplay">🇨🇴 Liga BetPlay</option>
+                    </select>
+                    <button onclick="crearNuevoGrupo()"
+                        class="w-full bg-gradient-to-r from-primary to-secondary text-white font-bold py-3 rounded-xl transition">Crear
+                        Grupo</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panel de Chat (Global v2.0) -->
+    <div id="panel-chat" class="fixed inset-y-0 right-0 w-full sm:w-80 bg-white dark:bg-gray-900 shadow-2xl z-[80] transform translate-x-full transition-transform duration-300 flex flex-col h-[100dvh]">
+        <div class="p-4 bg-primary text-primary-contrast transition-colors duration-300">
+            <h3 class="font-black italic flex items-center gap-2 text-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                CHAT DEL GRUPO
+            </h3>
+            <button onclick="toggleChat()" class="text-white/80 hover:text-white text-2xl font-bold">&times;</button>
+        </div>
+        <div id="chat-mensajes-container" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-gray-900/50" style="scrollbar-width: thin; scroll-behavior: smooth;">
+            <!-- Mensajes inyectados por JS -->
+            <p class="text-center text-xs text-gray-400 py-10 italic">Cargando conversación...</p>
+        </div>
+        <!-- Contenedor Input: Asegurado al final del viewport -->
+        <div class="p-4 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 shrink-0 pb-safe">
+            <form onsubmit="enviarMensajeChat(event)" class="flex gap-2">
+                <input type="text" id="chat-input" placeholder="Escribe algo..." maxlength="200" required 
+                    class="flex-1 bg-gray-100 dark:bg-gray-700 border-0 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary-500 outline-none dark:text-white shadow-inner">
+                <button type="submit" class="bg-primary hover:opacity-90 text-primary-contrast p-3 rounded-xl transition active:scale-95 shadow-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/ui.js?v=31"></script>
+    <script src="js/auth.js?v=31"></script>
+    <script src="js/stats.js?v=31"></script>
+    <script src="js/grupos.js?v=31"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('SW registrado'))
+                    .catch(err => console.log('SW error', err));
+            });
+        }
+    </script>
+</body>
+
+</html>
