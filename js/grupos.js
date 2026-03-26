@@ -199,7 +199,7 @@ async function crearNuevoGrupo() {
 }
 
 async function unirseAGrupo() {
-    const codigo = document.getElementById('codigo-unirse-input').value.trim();
+    const codigo = document.getElementById('codigo-unirse-input').value.trim().toUpperCase();
     const correoUsuario = localStorage.getItem('usuarioCorreo');
     if (!codigo) return mostrarToast("⚠️ Ingresa el código.");
 

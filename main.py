@@ -283,7 +283,7 @@ def unirse(d: GrupoUnirse, db: sqlite3.Connection = Depends(get_db), user_req: s
     cur = db.cursor()
     count = cur.execute("SELECT COUNT(*) FROM miembros_grupo WHERE correo_usuario=?", (user_req,)).fetchone()[0]
     if count >= 5: raise HTTPException(status_code=400, detail="Has alcanzado el límite máximo de 5 grupos por usuario.")
-    grupo = cur.execute("SELECT id, limite FROM grupos WHERE codigo=?", (d.codigo,)).fetchone()
+    grupo = cur.execute("SELECT id, limite FROM grupos WHERE codigo=?", (d.codigo.upper(),)).fetchone()
     if not grupo: raise HTTPException(status_code=404, detail="Código de grupo no encontrado")
     grupo_id, limite = grupo[0], grupo[1]
     miembros_actuales = cur.execute("SELECT COUNT(*) FROM miembros_grupo WHERE grupo_id=?", (grupo_id,)).fetchone()[0]

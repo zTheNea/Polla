@@ -600,8 +600,8 @@
                     <label class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2">Unirse con
                         Código</label>
             <div class="flex gap-4">
-                        <input id="codigo-unirse-input" type="text" placeholder="Ej: X7A9B"
-                            class="w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none uppercase font-bold text-center dark:text-white focus:border-primary">
+                        <input id="codigo-unirse-input" type="text" placeholder="Ej: X7A9B" oninput="this.value = this.value.toUpperCase()"
+                             class="w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none uppercase font-bold text-center dark:text-white focus:border-primary">
                         <button onclick="unirseAGrupo()"
                             class="bg-gray-800 hover:bg-black dark:bg-gray-600 dark:hover:bg-gray-500 text-white font-bold px-6 rounded-xl transition">Unirse</button>
                     </div>
