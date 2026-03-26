@@ -97,7 +97,9 @@ class UserStats:
 
 # --- BASE DE DATOS ---
 def get_db():
-    conn = sqlite3.connect('polla.db', timeout=10, check_same_thread=False)
+    # En Render usamos el disco persistente en /data, localmente usamos la raíz
+    db_path = "/data/polla.db" if os.path.exists("/data") else "polla.db"
+    conn = sqlite3.connect(db_path, timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=10000")
@@ -548,3 +550,8 @@ def get_manifest(): return FileResponse('manifest.json')
 def get_sw(): return FileResponse('sw.js', media_type='application/javascript')
 @app.get('/')
 def leer_index(): return FileResponse("index.html")
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

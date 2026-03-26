@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: polla-futbolera
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: POLLA_SECRET
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.10.0
+    disk:
+      name: polla-data
+      mountPath: /data
+      sizeGB: 1
