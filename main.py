@@ -59,16 +59,13 @@ class CuentaEliminar(BaseModel):
 class GrupoCrear(BaseModel):
     nombre: str = Field(..., min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9 áéíóúÁÉÍÓÚñÑ_\-]+$")
     limite: int
-    correo_creador: EmailStr
     liga: str
 
 class GrupoUnirse(BaseModel):
     codigo: str
-    correo_usuario: EmailStr
 
 class GrupoAccion(BaseModel):
     grupo_id: int
-    correo_usuario: EmailStr
 
 class PronosticoIndividual(BaseModel):
     id_partido: str
@@ -77,7 +74,6 @@ class PronosticoIndividual(BaseModel):
 
 class GuardarPronosticosRequest(BaseModel):
     grupo_id: int
-    correo_usuario: EmailStr
     pronosticos: List[PronosticoIndividual]
 
 class ChatMensaje(BaseModel):
@@ -283,16 +279,23 @@ def unirse(d: GrupoUnirse, db: sqlite3.Connection = Depends(get_db), user_req: s
     cur = db.cursor()
     count = cur.execute("SELECT COUNT(*) FROM miembros_grupo WHERE correo_usuario=?", (user_req,)).fetchone()[0]
     if count >= 5: raise HTTPException(status_code=400, detail="Has alcanzado el límite máximo de 5 grupos por usuario.")
+    print(f"Intento unirse a grupo: {d.codigo} (Upper: {d.codigo.upper()}) por usuario {user_req}")
     grupo = cur.execute("SELECT id, limite FROM grupos WHERE codigo=?", (d.codigo.upper(),)).fetchone()
-    if not grupo: raise HTTPException(status_code=404, detail="Código de grupo no encontrado")
+    if not grupo: 
+        print(f"Error: Código {d.codigo.upper()} no existe en DB.")
+        raise HTTPException(status_code=404, detail=f"Código de grupo '{d.codigo}' no encontrado")
     grupo_id, limite = grupo[0], grupo[1]
     miembros_actuales = cur.execute("SELECT COUNT(*) FROM miembros_grupo WHERE grupo_id=?", (grupo_id,)).fetchone()[0]
+    print(f"Grupo ID: {grupo_id}, Miembros: {miembros_actuales}, Limite: {limite}")
     if miembros_actuales >= limite: raise HTTPException(status_code=400, detail="Este grupo ya está lleno.")
     try:
         cur.execute("INSERT INTO miembros_grupo VALUES (?,?)", (grupo_id, user_req))
         db.commit()
+        print(f"Usuario {user_req} unido exitosamente al grupo {grupo_id}")
         return {"mensaje": "OK"}
-    except Exception: raise HTTPException(status_code=400, detail="Ya eres miembro de este grupo")
+    except Exception as e: 
+        print(f"Error SQL al unirse: {e}")
+        raise HTTPException(status_code=400, detail="Ya eres miembro de este grupo o error interno")
 
 @app.post("/api/grupos/salir")
 def salir_grupo(req: GrupoAccion, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):

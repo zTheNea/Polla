@@ -11,14 +11,14 @@ let misPronosticosCache = null;
 let misPronosticosCacheGid = null;
 let _ultimoChatFecha = null;
 
-window.limpiarCachePronosticos = function() {
+window.limpiarCachePronosticos = function () {
     misPronosticosCache = null;
     misPronosticosCacheGid = null;
     _ultimoChatFecha = null; // ✅ v2.0 fix: Evitar resumir chat de otro grupo
 };
 
 // --- UTILIDADES DE SEGURIDAD Y TIEMPO (v2.0) ---
-let _serverTimeOffset = 0; 
+let _serverTimeOffset = 0;
 async function sincronizarTiempo() {
     try {
         const start = Date.now();
@@ -45,14 +45,14 @@ async function fetchConAuth(url, options = {}) {
 }
 
 // --- GESTIÓN DE POLLING ---
-window.detenerPollingChat = function() {
+window.detenerPollingChat = function () {
     if (_intervaloChat) {
         clearInterval(_intervaloChat);
         _intervaloChat = null;
     }
 };
 
-window.detenerPollingLive = function() {
+window.detenerPollingLive = function () {
     if (_intervaloLive) {
         clearInterval(_intervaloLive);
         _intervaloLive = null;
@@ -60,8 +60,8 @@ window.detenerPollingLive = function() {
 };
 
 const AVATARES_EXTENDIDOS = [
-    '👤', '⚽', '🏆', '🥇', '👟', '🥅', '🧤', '🏟️', 
-    '🤴', '🦸', '🏃', '🤩', '🦁', '🐯', '🦅', '🔥', 
+    '👤', '⚽', '🏆', '🥇', '👟', '🥅', '🧤', '🏟️',
+    '🤴', '🦸', '🏃', '🤩', '🦁', '🐯', '🦅', '🔥',
     '⚡', '🎩', '🎯', '🎬', '💎', '🎨', '🚀', '👽'
 ];
 
@@ -181,7 +181,6 @@ async function crearNuevoGrupo() {
             body: JSON.stringify({
                 nombre: nombreGrupo,
                 limite: 20,
-                correo_creador: correoUsuario,
                 liga: ligaSeleccionada
             })
         });
@@ -347,15 +346,18 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
     const correo_usuario = localStorage.getItem('usuarioCorreo');
 
     if (correo_usuario === correo_creador) {
+        // Lógica para ELIMINAR el grupo si eres el creador
         const ok = await confirmarAccion("⚠️ ¿Estás seguro de eliminar este grupo?\n\nSe borrarán TODOS los pronósticos de los miembros y la sala dejará de existir. Esta acción no se puede deshacer.");
         if (!ok) return;
 
         try {
+            // SOLUCIÓN: Agregamos la petición fetchConAuth apuntando a /api/grupos/eliminar
             const res = await fetchConAuth('/api/grupos/eliminar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ grupo_id: parseInt(grupo_id), correo_usuario })
+                body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
             });
+
             if (res.ok) {
                 mostrarToast("El grupo ha sido eliminado exitosamente. 🗑️");
                 cargarMisGrupos();
@@ -363,8 +365,11 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
                 const err = await res.json();
                 mostrarToast("⚠️ Error: " + err.detail);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        }
     } else {
+        // Lógica para SALIR del grupo si eres solo un miembro
         const ok = await confirmarAccion("⚠️ ¿Estás seguro de que quieres salir del grupo?\n\nPerderás todos los pronósticos y puntos que tenías en esta sala.");
         if (!ok) return;
 
@@ -372,8 +377,9 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
             const res = await fetchConAuth('/api/grupos/salir', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ grupo_id: parseInt(grupo_id), correo_usuario })
+                body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
             });
+
             if (res.ok) {
                 mostrarToast("Has salido del grupo correctamente. 👋");
                 cargarMisGrupos();
@@ -381,7 +387,9 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
                 const err = await res.json();
                 mostrarToast("⚠️ Error: " + err.detail);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        }
     }
 }
 
@@ -457,7 +465,7 @@ async function cargarChat() {
                 if (nuevosDeOtros.length > 0) {
                     const notifBadge = document.getElementById('notif-chat');
                     if (notifBadge) notifBadge.classList.remove('hidden');
-                    
+
                     const ultimoMsj = nuevosDeOtros[nuevosDeOtros.length - 1];
                     mostrarToast(`💬 ${escHtml(ultimoMsj.nombre)}: ${escHtml(ultimoMsj.mensaje)}`);
                 }
@@ -485,7 +493,7 @@ async function cargarChat() {
                 if (container.querySelector('p')) container.innerHTML = '';
                 container.insertAdjacentHTML('beforeend', html);
             }
-            
+
             _ultimoChatFecha = d.mensajes[d.mensajes.length - 1].fecha;
             container.scrollTop = container.scrollHeight;
         } else if (!esDelta && d.mensajes.length === 0) {
@@ -494,7 +502,7 @@ async function cargarChat() {
     } catch (e) { console.error(e); }
 }
 
-window.enviarMensajeChat = async function(e) {
+window.enviarMensajeChat = async function (e) {
     if (e) e.preventDefault();
     const input = document.getElementById('chat-input');
     const msj = input.value.trim();
@@ -512,16 +520,16 @@ window.enviarMensajeChat = async function(e) {
         if (res.ok) {
             cargarChat();
         }
-    } catch (e) { 
+    } catch (e) {
         console.error(e);
         mostrarToast("⚠️ Error al enviar mensaje");
     }
 };
 
-window.iniciarPollingChat = function() {
+window.iniciarPollingChat = function () {
     window.detenerPollingChat();
     cargarChat();
-    
+
     // Polling dinámico: más rápido si el chat está abierto, más lento si está cerrado
     _intervaloChat = setInterval(() => {
         const hash = window.location.hash;
@@ -529,7 +537,7 @@ window.iniciarPollingChat = function() {
         if (hash === '#vista-grupo' || hash === '#vista-dashboard' || hash === '#vista-partido') {
             const panel = document.getElementById('panel-chat');
             const estaAbierto = panel && !panel.classList.contains('translate-x-full');
-            
+
             // Si está abierto, refrescamos cada ciclo (3s)
             // Si está cerrado, refrescamos solo 1 de cada 4 ciclos (~12s) para ahorrar batería
             const cicloLento = Math.floor(Date.now() / 3000) % 4 === 0;
@@ -548,7 +556,7 @@ window.iniciarPollingChat = function() {
 function poblarListaAvatares() {
     const lista = document.getElementById('lista-avatars');
     if (!lista) return;
-    
+
     const actual = localStorage.getItem('usuarioAvatar') || '👤';
     let h = '';
     AVATARES_EXTENDIDOS.forEach(av => {
@@ -563,7 +571,7 @@ function logicPredict() {
     if (inputs.length === 0) {
         return mostrarToast("💡 Abre los detalles de un partido para usar el autocompletado.");
     }
-    
+
     let count = 0;
     inputs.forEach(inp => {
         if (!inp.value || inp.value === '') {
@@ -636,13 +644,11 @@ async function eliminarGrupoActual() {
     if (!ok) return;
 
     const grupo_id = localStorage.getItem('grupoActivoId');
-    const correo_usuario = localStorage.getItem('usuarioCorreo');
-
     try {
         const res = await fetchConAuth('/api/grupos/eliminar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grupo_id: parseInt(grupo_id), correo_usuario })
+            body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
         });
         if (res.ok) {
             mostrarToast("El grupo ha sido eliminado exitosamente. 🗑️");
@@ -660,13 +666,11 @@ async function salirGrupoActual() {
     if (!ok) return;
 
     const grupo_id = localStorage.getItem('grupoActivoId');
-    const correo_usuario = localStorage.getItem('usuarioCorreo');
-
     try {
         const res = await fetchConAuth('/api/grupos/salir', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grupo_id: parseInt(grupo_id), correo_usuario })
+            body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
         });
         if (res.ok) {
             mostrarToast("Has salido del grupo correctamente. 👋");
@@ -718,8 +722,8 @@ async function cargarPartidos() {
 
             // 1. Separar y clasificar partidos
             const pVivo = partidosGlobales.filter(p => p.estado === 'in');
-            const pProx = partidosGlobales.filter(p => p.estado === 'pre').sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
-            const pRes = partidosGlobales.filter(p => p.estado === 'post').sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+            const pProx = partidosGlobales.filter(p => p.estado === 'pre').sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            const pRes = partidosGlobales.filter(p => p.estado === 'post').sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
             let htmlVivo = '', htmlProx = '', htmlRes = '';
             let cVivo = pVivo.length, cProx = pProx.length, cRes = pRes.length;
@@ -852,7 +856,7 @@ async function cargarPartidos() {
                             // Si algún partido cambió de estado (ej: pasó de 'in' a 'post'), limpiamos cache
                             const hudoCambioEstado = d.partidos.some((p, i) => p.estado !== (partidosGlobales[i]?.estado));
                             if (hudoCambioEstado) window.limpiarCachePronosticos();
-                            
+
                             partidosGlobales = d.partidos; // Actualizar cache interno
 
                             // 1. Actualizar vistas de lista (Grupo o Dashboard general si aplicara)
@@ -884,7 +888,7 @@ async function cargarPartidos() {
                                             eventMain.innerHTML = `⚽ <strong>Última Jugada:</strong> ${escHtml(activeMatch.ultimo_evento)}`;
                                         }
                                     }
-                                    
+
                                     // Refrescar cronología y extras (Novedad v28 - Siempre refresca si está en vivo)
                                     // Pasamos activeId y estado 'in' forzado para activar el reloj en el header
                                     if (typeof cargarExtrasPartido === 'function') {
@@ -1024,10 +1028,10 @@ async function verDetallesPartido(idPartido) {
             }
         } catch (e) { console.error("Error hidratando partido:", e); }
     }
-    
+
     // ✅ RACE CONDITION PROTECTION: Si el usuario ya cambió de opinión y abrió otro partido, cancelamos este renderizado
     if (currentId !== _fetchIdDetalle) return;
-    
+
     const partido = partidosGlobales.find(p => p.id_partido === idPartido);
     if (!partido) {
         // Fallback: si aún no lo encuentra (ID inválido o liga errónea), volvemos al dashboard
@@ -1196,7 +1200,7 @@ async function verDetallesPartido(idPartido) {
     `;
 
     document.getElementById('info-partido-dinamica').innerHTML = html;
-    
+
     // ✅ OCULTAR ATAJOS SI ESTÁ BLOQUEADO (Novedad v25)
     const atajos = document.getElementById('atajos-pronosticos');
     if (atajos) {
@@ -1565,7 +1569,6 @@ async function guardarUnPronostico(idPartido, btn) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 grupo_id: parseInt(gid),
-                correo_usuario: correo,
                 pronosticos: [{ id_partido: idPartido, goles_local: parseInt(valL), goles_visitante: parseInt(valV) }]
             })
         });
