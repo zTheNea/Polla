@@ -4,17 +4,33 @@
 
 let partidosGlobales = [];
 let _intervaloLive = null;
-let _intervaloChat = null;
 
 // Cache de pronósticos para evitar re-fetching al abrir el detalle de un partido
 let misPronosticosCache = null;
 let misPronosticosCacheGid = null;
-let _ultimoChatFecha = null;
+
+// --- MAPEO GLOBAL DE LIGAS (centralizado) ---
+const LIGAS_MAP = {
+    'champions': { icono: '🏆 Champions', nombre: 'UEFA Champions League', color: 'bg-indigo-100 text-primary-800 dark:bg-indigo-900 dark:text-indigo-300' },
+    'libertadores': { icono: '🌎 Libertadores', nombre: 'Copa Libertadores', color: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
+    'betplay': { icono: '🇨🇴 Liga BetPlay', nombre: 'Liga BetPlay', color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-400' },
+    'premier': { icono: '🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', nombre: 'Premier League', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' },
+    'laliga': { icono: '🇪🇸 La Liga', nombre: 'La Liga', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' },
+    'seriea': { icono: '🇮🇹 Serie A', nombre: 'Serie A', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
+    'bundesliga': { icono: '🇩🇪 Bundesliga', nombre: 'Bundesliga', color: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' },
+    'ligue1': { icono: '🇫🇷 Ligue 1', nombre: 'Ligue 1', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300' },
+    'argentina': { icono: '🇦🇷 Liga Argentina', nombre: 'Liga Argentina', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300' },
+    'brasileirao': { icono: '🇧🇷 Brasileirão', nombre: 'Brasileirão', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' },
+    'europa_league': { icono: '🌟 Europa League', nombre: 'Europa League', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
+    'copa_america': { icono: '🏆 Copa América', nombre: 'Copa América', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300' },
+    'mundial': { icono: '🌍 Copa del Mundo', nombre: 'Copa del Mundo', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-300' },
+    'eliminatorias': { icono: '⚽ Eliminatorias', nombre: 'Eliminatorias CONMEBOL', color: 'bg-lime-100 text-lime-700 dark:bg-lime-900 dark:text-lime-300' },
+};
 
 window.limpiarCachePronosticos = function () {
     misPronosticosCache = null;
     misPronosticosCacheGid = null;
-    _ultimoChatFecha = null; // ✅ v2.0 fix: Evitar resumir chat de otro grupo
+    if (window.limpiarCacheChat) window.limpiarCacheChat();
 };
 
 // --- UTILIDADES DE SEGURIDAD Y TIEMPO (v2.0) ---
@@ -32,26 +48,10 @@ async function sincronizarTiempo() {
 
 function getNow() { return new Date(Date.now() + _serverTimeOffset); }
 
-async function fetchConAuth(url, options = {}) {
-    const token = localStorage.getItem('authToken');
-    if (!options.headers) options.headers = {};
-    if (token) options.headers['x-token'] = token;
-    const res = await fetch(url, options);
-    if (res.status === 401) {
-        if (typeof cerrarSesion === 'function') cerrarSesion();
-        throw new Error("Sesión expirada");
-    }
-    return res;
-}
+// fetchConAuth eliminado — el interceptor global en ui.js inyecta tokens automáticamente.
+// Usamos fetch() directamente en todas las llamadas a la API.
 
 // --- GESTIÓN DE POLLING ---
-window.detenerPollingChat = function () {
-    if (_intervaloChat) {
-        clearInterval(_intervaloChat);
-        _intervaloChat = null;
-    }
-};
-
 window.detenerPollingLive = function () {
     if (_intervaloLive) {
         clearInterval(_intervaloLive);
@@ -96,6 +96,15 @@ function cambiarGol(inputId, delta, idPartido) {
     const input = document.getElementById(inputId);
     if (!input) return;
     input.value = Math.max(0, (parseInt(input.value) || 0) + delta);
+
+    // 💡 Indicador visual de "cambios sin guardar"
+    const btnGuardar = document.getElementById(`btn-guardar-${idPartido}`);
+    if (btnGuardar && !btnGuardar.dataset.unsaved) {
+        btnGuardar.dataset.unsaved = 'true';
+        btnGuardar.classList.add('animate-pulse', 'ring-2', 'ring-yellow-400', 'ring-offset-2');
+        const originalText = btnGuardar.textContent;
+        btnGuardar.innerHTML = '⚠️ Guardar cambios pendientes';
+    }
 }
 
 // Actualiza la barra de progreso de pronósticos pendientes (ignorando los partidos pasados sin pronóstico)
@@ -175,7 +184,7 @@ async function crearNuevoGrupo() {
     if (!correoUsuario) return;
 
     try {
-        const respuesta = await fetchConAuth('/api/grupos/crear', {
+        const respuesta = await fetch('/api/grupos/crear', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -203,7 +212,7 @@ async function unirseAGrupo() {
     if (!codigo) return mostrarToast("⚠️ Ingresa el código.");
 
     try {
-        const respuesta = await fetchConAuth('/api/grupos/unirse', {
+        const respuesta = await fetch('/api/grupos/unirse', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ codigo })
@@ -229,7 +238,7 @@ async function cargarMisGrupos() {
     mostrarSkeletonGrupos('contenedor-grupos');
 
     try {
-        const respuesta = await fetchConAuth(`/api/grupos/mis-grupos`);
+        const respuesta = await fetch(`/api/grupos/mis-grupos`);
         const datos = await respuesta.json();
 
         if (respuesta.ok) {
@@ -275,19 +284,9 @@ async function cargarMisGrupos() {
                 }
 
                 datos.grupos.forEach(g => {
-                    const esEuropa = g.liga === 'champions';
-                    const esBetplay = g.liga === 'betplay';
-
-                    let colorTema = 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300';
-                    let iconoTema = '🌎 Libertadores';
-
-                    if (esEuropa) {
-                        colorTema = 'bg-indigo-100 text-primary-800 dark:bg-indigo-900 dark:text-indigo-300';
-                        iconoTema = '🏆 Champions';
-                    } else if (esBetplay) {
-                        colorTema = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-400';
-                        iconoTema = '🇨🇴 Liga BetPlay';
-                    }
+                    const ligaInfo = LIGAS_MAP[g.liga] || { icono: '⚽ ' + (g.liga || 'Liga'), color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' };
+                    let colorTema = ligaInfo.color;
+                    let iconoTema = ligaInfo.icono;
 
                     const esCreador = correoUsuario === g.correo_creador;
                     const iconTitle = esCreador ? "Eliminar Grupo" : "Salir del Grupo";
@@ -352,7 +351,7 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
 
         try {
             // SOLUCIÓN: Agregamos la petición fetchConAuth apuntando a /api/grupos/eliminar
-            const res = await fetchConAuth('/api/grupos/eliminar', {
+            const res = await fetch('/api/grupos/eliminar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
@@ -374,7 +373,7 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
         if (!ok) return;
 
         try {
-            const res = await fetchConAuth('/api/grupos/salir', {
+            const res = await fetch('/api/grupos/salir', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
@@ -443,114 +442,6 @@ function toggleChat() {
         }, 300);
     }
 }
-
-async function cargarChat() {
-    const gid = localStorage.getItem('grupoActivoId');
-    const container = document.getElementById('chat-mensajes-container');
-    const miCorreo = localStorage.getItem('usuarioCorreo');
-    const esDelta = !!_ultimoChatFecha;
-
-    try {
-        const url = esDelta ? `/api/chat/${gid}?since=${_ultimoChatFecha}` : `/api/chat/${gid}`;
-        const res = await fetchConAuth(url);
-        const d = await res.json();
-        if (res.ok && d.mensajes.length > 0) {
-            const panel = document.getElementById('panel-chat');
-            const estaAbierto = panel && !panel.classList.contains('translate-x-full');
-            const miCorreo = localStorage.getItem('usuarioCorreo');
-
-            // 🔔 Notificación si hay mensajes nuevos de otros y el chat está cerrado
-            if (esDelta && !estaAbierto) {
-                const nuevosDeOtros = d.mensajes.filter(m => m.correo_usuario !== miCorreo);
-                if (nuevosDeOtros.length > 0) {
-                    const notifBadge = document.getElementById('notif-chat');
-                    if (notifBadge) notifBadge.classList.remove('hidden');
-
-                    const ultimoMsj = nuevosDeOtros[nuevosDeOtros.length - 1];
-                    mostrarToast(`💬 ${escHtml(ultimoMsj.nombre)}: ${escHtml(ultimoMsj.mensaje)}`);
-                }
-            }
-
-            let html = '';
-            d.mensajes.forEach(m => {
-                const esMio = m.correo_usuario === miCorreo;
-                html += `
-                    <div class="flex flex-col ${esMio ? 'items-end' : 'items-start'} mb-3">
-                        <div class="flex items-center gap-1 mb-1">
-                            <span class="text-[10px] font-bold text-gray-400 capitalize">${esMio ? 'Tú' : escHtml(m.nombre)}</span>
-                            <span class="text-xs">${m.avatar}</span>
-                        </div>
-                        <div class="${esMio ? 'bg-primary text-primary-contrast rounded-l-1xl rounded-tr-1xl' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-r-1xl rounded-tl-1xl border border-gray-100 dark:border-gray-700'} p-2.5 shadow-sm text-sm max-w-[85%] break-words">
-                            ${escHtml(m.mensaje)}
-                        </div>
-                    </div>`;
-            });
-
-            if (!esDelta) {
-                container.innerHTML = html;
-            } else {
-                // Si es delta, quitamos el placeholder si existe y agregamos al final
-                if (container.querySelector('p')) container.innerHTML = '';
-                container.insertAdjacentHTML('beforeend', html);
-            }
-
-            _ultimoChatFecha = d.mensajes[d.mensajes.length - 1].fecha;
-            container.scrollTop = container.scrollHeight;
-        } else if (!esDelta && d.mensajes.length === 0) {
-            container.innerHTML = '<p class="text-center text-xs text-gray-400 py-10 italic">¡Sé el primero en escribir!</p>';
-        }
-    } catch (e) { console.error(e); }
-}
-
-window.enviarMensajeChat = async function (e) {
-    if (e) e.preventDefault();
-    const input = document.getElementById('chat-input');
-    const msj = input.value.trim();
-    if (!msj) return;
-
-    const gid = localStorage.getItem('grupoActivoId');
-    input.value = '';
-
-    try {
-        const res = await fetchConAuth('/api/chat/enviar', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grupo_id: parseInt(gid), mensaje: msj })
-        });
-        if (res.ok) {
-            cargarChat();
-        }
-    } catch (e) {
-        console.error(e);
-        mostrarToast("⚠️ Error al enviar mensaje");
-    }
-};
-
-window.iniciarPollingChat = function () {
-    window.detenerPollingChat();
-    cargarChat();
-
-    // Polling dinámico: más rápido si el chat está abierto, más lento si está cerrado
-    _intervaloChat = setInterval(() => {
-        const hash = window.location.hash;
-        // Permitir polling en dashboard y grupo para notificaciones globales
-        if (hash === '#vista-grupo' || hash === '#vista-dashboard' || hash === '#vista-partido') {
-            const panel = document.getElementById('panel-chat');
-            const estaAbierto = panel && !panel.classList.contains('translate-x-full');
-
-            // Si está abierto, refrescamos cada ciclo (3s)
-            // Si está cerrado, refrescamos solo 1 de cada 4 ciclos (~12s) para ahorrar batería
-            const cicloLento = Math.floor(Date.now() / 3000) % 4 === 0;
-
-            if (estaAbierto || cicloLento) {
-                cargarChat();
-            }
-        } else {
-            window.detenerPollingChat();
-        }
-    }, 3000);
-};
-
 // Función movida al inicio para visibilidad global
 
 function poblarListaAvatares() {
@@ -645,7 +536,7 @@ async function eliminarGrupoActual() {
 
     const grupo_id = localStorage.getItem('grupoActivoId');
     try {
-        const res = await fetchConAuth('/api/grupos/eliminar', {
+        const res = await fetch('/api/grupos/eliminar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
@@ -667,7 +558,7 @@ async function salirGrupoActual() {
 
     const grupo_id = localStorage.getItem('grupoActivoId');
     try {
-        const res = await fetchConAuth('/api/grupos/salir', {
+        const res = await fetch('/api/grupos/salir', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
@@ -742,7 +633,7 @@ async function cargarPartidos() {
                         ${p.estado === 'pre' ? `<div class="text-[11px] font-black text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/30 py-1 px-3 rounded-full inline-block mb-3 temporizador-partido shadow-sm" data-fecha="${p.fecha}">Calculando...</div>` : '<div class="mb-3"></div>'}
                         <div class="flex justify-between items-center w-full">
                             <div class="flex-1 w-0 text-center">
-                                <img src="${logos[0]}" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1">
+                                <img src="${logos[0]}" loading="lazy" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1">
                                 <span class="text-[10px] font-black truncate block px-1">${escHtml(p.local)}</span>
                             </div>
                             <div class="shrink-0 px-2 flex flex-col items-center justify-center">
@@ -752,7 +643,7 @@ async function cargarPartidos() {
                     }
                             </div>
                             <div class="flex-1 w-0 text-center">
-                                <img src="${logos[1]}" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1">
+                                <img src="${logos[1]}" loading="lazy" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1">
                                 <span class="text-[10px] font-black truncate block px-1">${escHtml(p.visitante)}</span>
                             </div>
                         </div>
@@ -844,6 +735,7 @@ async function cargarPartidos() {
 
             cargarMisPronosticosResumen();
             agregarSwipeTabs();
+            iniciarTemporizadores(); // Reiniciar countdown al cargar nuevos partidos
 
             // Configurar Polling en vivo para los partidos 'in'
             if (typeof _intervaloLive !== 'undefined') clearInterval(_intervaloLive);
@@ -911,7 +803,7 @@ async function cargarMisPronosticosResumen() {
     const gid = localStorage.getItem('grupoActivoId');
     const correo = localStorage.getItem('usuarioCorreo');
     try {
-        const r = await fetchConAuth(`/api/pronosticos/${gid}/${correo}`);
+        const r = await fetch(`/api/pronosticos/${gid}/${correo}`);
         const d = await r.json();
         misPronosticosCache = d.pronosticos;
         misPronosticosCacheGid = gid;
@@ -931,7 +823,7 @@ async function cargarMisPronosticosResumen() {
 }
 
 function calcularTiempoAmigable(fechaPartido) {
-    const ahora = new Date();
+    const ahora = getNow();
     const fecha = new Date(fechaPartido);
     const diferenciaMs = fecha - ahora;
 
@@ -1040,7 +932,7 @@ async function verDetallesPartido(idPartido) {
     }
 
     const fechaPartido = new Date(partido.fecha);
-    const ahora = new Date();
+    const ahora = getNow();
 
     const diferenciaMinutos = (fechaPartido - ahora) / (1000 * 60);
     const bloqueado = partido.estado !== 'pre' || diferenciaMinutos <= 10;
@@ -1054,7 +946,7 @@ async function verDetallesPartido(idPartido) {
         if (pr) { miPronostico.l = pr.goles_local; miPronostico.v = pr.goles_visitante; }
     } else {
         try {
-            const r = await fetchConAuth(`/api/pronosticos/${gid}/${correo}`);
+            const r = await fetch(`/api/pronosticos/${gid}/${correo}`);
             const d = await r.json();
             misPronosticosCache = d.pronosticos;
             misPronosticosCacheGid = gid;
@@ -1064,8 +956,7 @@ async function verDetallesPartido(idPartido) {
     }
 
     const logos = [partido.local_logo, partido.visitante_logo].map(l => l || LOGO_FALLBACK);
-    const mapLigas = { 'libertadores': 'Copa Libertadores', 'betplay': 'Liga BetPlay', 'champions': 'UEFA Champions League' };
-    const ligaActual = mapLigas[localStorage.getItem('grupoActivoLiga')] || 'Competición';
+    const ligaActual = (LIGAS_MAP[localStorage.getItem('grupoActivoLiga')] || {}).nombre || 'Competición';
 
     // Badge más compacto
     let badgeEstado = '';
@@ -1228,9 +1119,7 @@ async function verDetallesPartido(idPartido) {
 
 async function cargarExtrasPartido(idPartido, estadoPartido, bloqueado) {
     const liga = localStorage.getItem('grupoActivoLiga');
-    let torneoEspn = 'conmebol.libertadores';
-    if (liga === 'champions') torneoEspn = 'uefa.champions';
-    else if (liga === 'betplay') torneoEspn = 'col.1';
+    // El endpoint /api/partidos/detalle/ ya resuelve la liga internamente, no necesitamos el torneo aquí
 
     try {
         const respuesta = await fetch(`/api/partidos/detalle/${idPartido}`);
@@ -1510,7 +1399,7 @@ async function cargarExtrasPartido(idPartido, estadoPartido, bloqueado) {
         if (contPronosticos) {
             try {
                 const gid = localStorage.getItem('grupoActivoId');
-                const resP = await fetchConAuth(`/api/pronosticos/distribucion/${gid}/${idPartido}`);
+                const resP = await fetch(`/api/pronosticos/distribucion/${gid}/${idPartido}`);
                 if (resP.ok) {
                     const dataP = await resP.json();
                     if (dataP.estado === 'exito' && dataP.distribucion.length > 0) {
@@ -1564,7 +1453,7 @@ async function guardarUnPronostico(idPartido, btn) {
     btn.disabled = true;
 
     try {
-        const res = await fetchConAuth('/api/pronosticos/guardar', {
+        const res = await fetch('/api/pronosticos/guardar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1613,100 +1502,6 @@ async function guardarUnPronostico(idPartido, btn) {
         mostrarToast("❌ " + e.message);
         btn.innerHTML = originalHTML;
         btn.disabled = false;
-    }
-}
-
-async function verTablaPosiciones() {
-    const elPrev = document.getElementById('m-pos');
-    if (elPrev) elPrev.remove();
-
-    const gid = localStorage.getItem('grupoActivoId');
-    try {
-        const respuesta = await fetchConAuth(`/api/posiciones/${gid}`);
-        if (!respuesta.ok) { mostrarToast('⚠️ No se pudo cargar el ranking del grupo.'); return; }
-        const datos = await respuesta.json();
-
-        let h = `
-    <div id="m-pos" class="fixed inset-0 bg-black/80 z-50 flex justify-center items-center p-2 backdrop-blur-md animar-entrada">
-        <div class="bg-white dark:bg-gray-900 rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            <div class="bg-yellow-500 p-6 flex justify-between items-center text-white shrink-0">
-                <div>
-                    <h3 class="font-black text-xl italic">RANKING DE LA POLLA</h3>
-                    <p class="text-[10px] opacity-80">Sistema de puntuación por pronósticos</p>
-                </div>
-                <button onclick="document.getElementById('m-pos').remove()" class="text-2xl font-bold hover:text-yellow-200 transition">&times;</button>
-            </div>
-            <!-- Leyenda de puntuación -->
-            <div class="bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800 px-4 py-3">
-                <p class="text-[11px] font-black text-yellow-700 dark:text-yellow-400 uppercase tracking-wide mb-2">🎯 Cómo se puntean los pronósticos</p>
-                <div class="grid grid-cols-1 gap-y-2 text-[11px]">
-                    <div class="flex items-start gap-2">
-                        <span class="shrink-0 w-8 text-center font-black text-yellow-600 bg-yellow-100 dark:bg-yellow-900/40 rounded-md py-0.5">+10</span>
-                        <span class="text-gray-600 dark:text-gray-300"><b class="text-yellow-600">MU — Marcador Único:</b> Aciertas el marcador exacto y eres el <em>único</em> en el grupo en hacerlo.</span>
-                    </div>
-                    <div class="flex items-start gap-2">
-                        <span class="shrink-0 w-8 text-center font-black text-primary bg-primary-100 dark:bg-blue-900/40 rounded-md py-0.5">+5</span>
-                        <span class="text-gray-600 dark:text-gray-300"><b class="text-primary">ME — Marcador Exacto:</b> Aciertas el marcador exacto, pero más de una persona en el grupo también lo acertó.</span>
-                    </div>
-                    <div class="flex items-start gap-2">
-                        <span class="shrink-0 w-8 text-center font-black text-green-600 bg-green-100 dark:bg-green-900/40 rounded-md py-0.5">+3</span>
-                        <span class="text-gray-600 dark:text-gray-300"><b class="text-green-600">GA — Ganador Acertado:</b> No aciertas el marcador exacto, pero sí el equipo ganador o el empate.</span>
-                    </div>
-                    <div class="flex items-start gap-2">
-                        <span class="shrink-0 w-8 text-center font-black text-purple-600 bg-purple-100 dark:bg-purple-900/40 rounded-md py-0.5">+1</span>
-                        <span class="text-gray-600 dark:text-gray-300"><b class="text-purple-600">GG — Goles a medias:</b> No aciertas al ganador, pero sí los goles exactos de uno de los dos equipos.</span>
-                    </div>
-                    <div class="flex items-start gap-2">
-                        <span class="shrink-0 w-8 text-center font-black text-red-500 bg-red-100 dark:bg-red-900/40 rounded-md py-0.5">0</span>
-                        <span class="text-gray-600 dark:text-gray-300"><b class="text-red-500">PA — Partido sin Acierto:</b> No acertaste en nada, o no agregaste pronóstico al partido.</span>
-                    </div>
-                </div>
-            </div>
-            <div class="overflow-y-auto">
-                <table class="w-full text-center text-xs">
-                    <thead class="bg-gray-50 dark:bg-gray-800 text-gray-500 font-bold border-b border-gray-100 dark:border-gray-700 sticky top-0">
-                        <tr>
-                            <th class="p-3 text-left rounded-tl-xl">#</th>
-                            <th class="p-3 text-left">JUGADOR</th>
-                            <th class="p-3 text-yellow-600" title="Puntos totales">PTS</th>
-                            <th class="p-3 text-yellow-500" title="Marcador Único: marcador exacto, único en el grupo (+10 pts)">MU</th>
-                            <th class="p-3 text-primary-500" title="Marcador Exacto: marcador exacto compartido con otros (+5 pts)">ME</th>
-                            <th class="p-3 text-green-500" title="Ganador Acertado o Empate correcto (+3 pts)">GA</th>
-                            <th class="p-3 text-purple-500" title="Goles a medias: no aciertas ganador pero sí goles de un equipo (+1 pt)">GG</th>
-                            <th class="p-3 text-red-500 rounded-tr-xl" title="Partido sin Acierto: no acertó nada o no agregó pronóstico (0 pts)">PA</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">`;
-
-        datos.posiciones.forEach((jugador, i) => {
-            const corona = i === 0 ? '👑' : i + 1;
-            const miCorreo = localStorage.getItem('usuarioCorreo');
-            const esMismo = jugador.correo === miCorreo;
-
-            h += `<tr class="${esMismo ? 'bg-primary-50/50 dark:bg-primary-100/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'} transition">
-            <td class="p-3 font-bold text-gray-400 text-sm">${corona}</td>
-            <td class="p-3 text-left">
-                <div class="flex items-center gap-2">
-                    <span class="text-base leading-none">${jugador.avatar || '👤'}</span>
-                    <div class="flex flex-col">
-                        <span class="font-black text-gray-700 dark:text-gray-200 capitalize leading-none">${escHtml(jugador.nombre)}</span>
-                    </div>
-                </div>
-            </td>
-            <td class="p-3 font-black text-sm text-yellow-600 bg-yellow-50/50 dark:bg-yellow-900/10">${jugador.puntos}</td>
-            <td class="p-3 font-bold text-yellow-500">${jugador.mu}</td>
-            <td class="p-3 font-bold text-primary-500">${jugador.me}</td>
-            <td class="p-3 font-bold text-green-500">${jugador.ga}</td>
-            <td class="p-3 font-bold text-purple-500">${jugador.gg}</td>
-            <td class="p-3 font-bold text-red-400">${jugador.pe}</td>
-        </tr>`;
-        });
-
-        h += `</tbody></table></div></div></div>`;
-        document.body.insertAdjacentHTML('beforeend', h);
-    } catch (e) {
-        console.error(e);
-        mostrarToast('❌ Error de conexión al cargar el ranking.');
     }
 }
 
@@ -1766,7 +1561,7 @@ window.cambiarTabFiltros = function (tabName) {
 function actualizarTemporizadores() {
     document.querySelectorAll('.temporizador-partido').forEach(el => {
         const fechaPartido = new Date(el.getAttribute('data-fecha'));
-        const ahora = new Date();
+        const ahora = getNow();
         const diffMs = fechaPartido - ahora;
 
         if (diffMs <= 0) {
@@ -1795,15 +1590,21 @@ function actualizarTemporizadores() {
     });
 }
 
-// Auto-clearing interval: se detiene solo cuando no quedan partidos con temporizador activo
-let _intervaloTemp = setInterval(() => {
-    const quedan = document.querySelectorAll('.temporizador-partido');
-    if (quedan.length === 0) {
-        clearInterval(_intervaloTemp);
-        return;
-    }
-    actualizarTemporizadores();
-}, 1000);
+// Auto-clearing interval: reiniciable para soportar recarga de partidos
+let _intervaloTemp = null;
+function iniciarTemporizadores() {
+    if (_intervaloTemp) clearInterval(_intervaloTemp);
+    _intervaloTemp = setInterval(() => {
+        const quedan = document.querySelectorAll('.temporizador-partido');
+        if (quedan.length === 0) {
+            clearInterval(_intervaloTemp);
+            _intervaloTemp = null;
+            return;
+        }
+        actualizarTemporizadores();
+    }, 1000);
+}
+iniciarTemporizadores();
 
-// ✅ Inicialización v2.0
+// ✅ Inicialización v3.0
 sincronizarTiempo();

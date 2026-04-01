@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0f172a">
     <link rel="manifest" href="/manifest.json">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Ccircle cx='256' cy='256' r='256' fill='%232563eb'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' font-family='sans-serif' font-size='256' fill='white'%3E%E2%9A%BD%3C/text%3E%3C/svg%3E">
+    <link rel="apple-touch-icon" href="/js/icon-512.png">
     <title>Polla Futbolera — Predicciones Deportivas y Ranking</title>
     <meta name="description" content="Únete a la mejor Polla Futbolera. Crea tu grupo, haz tus pronósticos de la Champions, Libertadores y Liga BetPlay, y compite por el primer lugar.">
     <meta name="keywords" content="fútbol, polla, pronósticos, predicciones, champions, libertadores, betplay">
@@ -42,6 +42,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;900&display=swap"
         rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous"></script>
     <script>
         // Aplicar tema guardado inmediatamente para evitar FOUC
         (function() {
@@ -333,6 +334,10 @@
                             id="nombre-dashboard">Usuario</span> 👋</h2>
                 </div>
                 <div class="flex items-center gap-1 sm:gap-3">
+                    <button onclick="cambiarPantalla('vista-stats')" type="button" aria-label="Mis Estadísticas"
+                        class="text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 p-2.5 rounded-xl transition flex items-center gap-2 font-bold text-sm">
+                        📊 <span class="hidden sm:inline">Stats</span>
+                    </button>
                     <button onclick="abrirPerfil()" type="button" aria-label="Ajustes de perfil"
                         class="text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 p-2.5 rounded-xl transition flex items-center gap-2 font-bold text-sm">
                         ⚙️ <span class="hidden sm:inline">Ajustes</span>
@@ -512,8 +517,6 @@
             </button>
         </main>
     </div>
-        </main>
-    </div>
 
     <div id="vista-grupo" class="pantalla flex-col min-h-screen w-full bg-gray-100 dark:bg-gray-900">
         <header
@@ -618,11 +621,59 @@
                         <option value="champions">🏆 UEFA Champions League</option>
                         <option value="libertadores">🌎 Copa Libertadores</option>
                         <option value="betplay">🇨🇴 Liga BetPlay</option>
+                        <option value="premier">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League</option>
+                        <option value="laliga">🇪🇸 La Liga</option>
+                        <option value="seriea">🇮🇹 Serie A</option>
+                        <option value="bundesliga">🇩🇪 Bundesliga</option>
+                        <option value="ligue1">🇫🇷 Ligue 1</option>
+                        <option value="argentina">🇦🇷 Liga Argentina</option>
+                        <option value="brasileirao">🇧🇷 Brasileirão</option>
+                        <option value="europa_league">🌟 Europa League</option>
+                        <option value="copa_america">🏆 Copa América</option>
+                        <option value="mundial">🌍 Copa del Mundo</option>
+                        <option value="eliminatorias">⚽ Eliminatorias CONMEBOL</option>
                     </select>
                     <button onclick="crearNuevoGrupo()"
                         class="w-full bg-gradient-to-r from-primary to-secondary text-white font-bold py-3 rounded-xl transition">Crear
                         Grupo</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vista: Mis Estadísticas -->
+    <div id="vista-stats" class="pantalla flex-col min-h-screen w-full bg-gray-100 dark:bg-gray-900">
+        <header class="bg-white dark:bg-gray-800 p-4 sticky top-0 z-30 border-b border-gray-100 dark:border-gray-700">
+            <div class="flex items-center justify-between max-w-3xl mx-auto">
+                <button onclick="cambiarPantalla('vista-dashboard')" class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <h2 class="font-black text-lg dark:text-white">📊 Mis Estadísticas</h2>
+                <div class="w-6"></div>
+            </div>
+        </header>
+        <main class="flex-1 p-4 max-w-3xl mx-auto w-full">
+            <div id="contenedor-stats-personal" class="space-y-4">
+                <div class="flex items-center justify-center py-20 animate-pulse">
+                    <p class="text-gray-400 font-bold text-sm">Cargando estadísticas...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Onboarding Overlay -->
+    <div id="onboarding-overlay" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-[2rem] max-w-md w-full shadow-2xl overflow-hidden">
+            <div id="onboarding-contenido" class="p-6"></div>
+            <div class="flex gap-3 p-4 pt-0">
+                <button id="onboarding-skip" onclick="cerrarOnboarding()" class="flex-1 text-xs font-bold text-gray-400 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition">Omitir</button>
+                <button id="onboarding-next" onclick="siguientePasoOnboarding()" class="flex-1 bg-primary text-white font-black py-3 rounded-xl shadow-md active:scale-95 transition text-sm">Siguiente →</button>
+            </div>
+            <div class="flex justify-center gap-1.5 pb-5">
+                <span id="dot-0" class="w-2 h-2 rounded-full bg-primary"></span>
+                <span id="dot-1" class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></span>
+                <span id="dot-2" class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></span>
+                <span id="dot-3" class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></span>
             </div>
         </div>
     </div>
@@ -652,10 +703,12 @@
         </div>
     </div>
 
-    <script src="js/ui.js?v=31"></script>
-    <script src="js/auth.js?v=31"></script>
-    <script src="js/stats.js?v=31"></script>
-    <script src="js/grupos.js?v=31"></script>
+    <script src="js/ui.js?v=34"></script>
+    <script src="js/auth.js?v=34"></script>
+    <script src="js/stats.js?v=34"></script>
+    <script src="js/chat.js?v=34"></script>
+    <script src="js/ranking.js?v=34"></script>
+    <script src="js/grupos.js?v=34"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

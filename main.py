@@ -1,4 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends, Header # type: ignore
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect # type: ignore
+import logging
+
+logger = logging.getLogger("polla")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 from passlib.context import CryptContext # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 import uvicorn
@@ -16,20 +20,54 @@ import hmac
 import httpx # type: ignore
 from datetime import datetime, timedelta, timezone
 import os
+from slowapi import Limiter, _rate_limit_exceeded_handler # type: ignore
+from slowapi.util import get_remote_address # type: ignore
+from slowapi.errors import RateLimitExceeded # type: ignore
+import time
 
 app = FastAPI()
+
+# --- CACHÉ EN MEMORIA PARA ESPN ---
+espn_cache = {}
+CACHE_TTL = 15 # segundos de vida para la caché
+
+# --- WEBSOCKET MANAGER ---
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections = {}
+
+    async def connect(self, websocket: WebSocket, grupo_id: int):
+        await websocket.accept()
+        if grupo_id not in self.active_connections:
+            self.active_connections[grupo_id] = []
+        self.active_connections[grupo_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, grupo_id: int):
+        if grupo_id in self.active_connections:
+            if websocket in self.active_connections[grupo_id]:
+                self.active_connections[grupo_id].remove(websocket)
+
+    async def broadcast(self, message: dict, grupo_id: int):
+        if grupo_id in self.active_connections:
+            for connection in self.active_connections[grupo_id]:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    pass
+
+ws_manager = ConnectionManager()
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Clave secreta para HMAC (Tokens). Se recomienda configurar en variable de entorno 'POLLA_SECRET'
 SECRET_KEY = os.getenv("POLLA_SECRET", "SUPER_SECRET_POLLA_2024_DEFAULT_REPLACE_ME")
 
+_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,http://localhost:5500").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:5500",
-        "https://silklike-groomishly-marybeth.ngrok-free.dev"
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,7 +132,6 @@ class UserStats:
 
 # --- BASE DE DATOS ---
 def get_db():
-    # En Render usamos el disco persistente en /data, localmente usamos la raíz
     db_path = "/data/polla.db" if os.path.exists("/data") else "polla.db"
     conn = sqlite3.connect(db_path, timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -117,12 +154,15 @@ def init_db():
         except sqlite3.OperationalError: pass
         try: cursor.execute("ALTER TABLE usuarios ADD COLUMN token TEXT UNIQUE")
         except sqlite3.OperationalError: pass
+        try: cursor.execute("ALTER TABLE usuarios ADD COLUMN token_expiry TEXT")
+        except sqlite3.OperationalError: pass
 
         cursor.execute('CREATE TABLE IF NOT EXISTS grupos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, codigo TEXT UNIQUE, correo_creador TEXT, liga TEXT, limite INTEGER DEFAULT 10)')
         cursor.execute('CREATE TABLE IF NOT EXISTS miembros_grupo (grupo_id INTEGER, correo_usuario TEXT, PRIMARY KEY(grupo_id, correo_usuario))')
         cursor.execute('CREATE TABLE IF NOT EXISTS pronosticos (grupo_id INTEGER, correo_usuario TEXT, id_partido TEXT, goles_local INTEGER, goles_visitante INTEGER, PRIMARY KEY(grupo_id, correo_usuario, id_partido))')
         cursor.execute('CREATE TABLE IF NOT EXISTS chat_mensajes (id INTEGER PRIMARY KEY AUTOINCREMENT, grupo_id INTEGER, correo_usuario TEXT, mensaje TEXT, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
         cursor.execute('CREATE TABLE IF NOT EXISTS puntos_historial (grupo_id INTEGER, correo_usuario TEXT, puntos INTEGER, fecha DATE DEFAULT (CURRENT_DATE), PRIMARY KEY(grupo_id, correo_usuario, fecha))')
+        cursor.execute('CREATE TABLE IF NOT EXISTS logros (id INTEGER PRIMARY KEY AUTOINCREMENT, correo TEXT, badge_id TEXT, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(correo, badge_id))')
         
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_pronos_grupo_partido ON pronosticos(grupo_id, id_partido)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_miembros_correo ON miembros_grupo(correo_usuario)')
@@ -137,14 +177,68 @@ def init_db():
 init_db()
 
 # --- UTILIDADES ---
+LIGAS_ESPN = {
+    "champions": "uefa.champions",
+    "libertadores": "conmebol.libertadores",
+    "betplay": "col.1",
+    "premier": "eng.1",
+    "laliga": "esp.1",
+    "seriea": "ita.1",
+    "bundesliga": "ger.1",
+    "ligue1": "fra.1",
+    "argentina": "arg.1",
+    "brasileirao": "bra.1",
+    "europa_league": "uefa.europa",
+    "copa_america": "conmebol.america",
+    "mundial": "fifa.world",
+    "eliminatorias": "conmebol.worldqualifier",
+}
+
+BADGES = {
+    "primer_pronostico": {"nombre": "Primer Gol", "emoji": "⚽", "descripcion": "Hiciste tu primer pronóstico"},
+    "veterano": {"nombre": "Veterano", "emoji": "🎖️", "descripcion": "Más de 50 pronósticos realizados"},
+    "social": {"nombre": "Socialite", "emoji": "💬", "descripcion": "Enviaste 50+ mensajes en el chat"},
+    "explorador": {"nombre": "Explorador", "emoji": "🌍", "descripcion": "Te uniste a 3 o más grupos"},
+    "perfeccionista": {"nombre": "Perfeccionista", "emoji": "🎯", "descripcion": "Acertaste un marcador exacto único (MU)"},
+    "leyenda": {"nombre": "Leyenda", "emoji": "👑", "descripcion": "Alcanzaste 50+ puntos en un grupo"},
+    "racha_3": {"nombre": "Hat-Trick", "emoji": "🔥", "descripcion": "3 aciertos de ganador consecutivos"},
+    "madrugador": {"nombre": "Madrugador", "emoji": "⏰", "descripcion": "Pronosticaste todas las jornadas"},
+}
+
+def _otorgar(db, correo, badge_id):
+    try: db.execute("INSERT INTO logros (correo, badge_id) VALUES (?,?)", (correo, badge_id))
+    except sqlite3.IntegrityError: pass
+
+def verificar_y_otorgar_logros(db, correo: str):
+    """Verifica condiciones y otorga badges automáticamente."""
+    try:
+        # Primer pronóstico
+        n_pronos = db.execute("SELECT COUNT(*) FROM pronosticos WHERE correo_usuario=?", (correo,)).fetchone()[0]
+        if n_pronos >= 1: _otorgar(db, correo, "primer_pronostico")
+        # Veterano (50+ pronósticos)
+        if n_pronos >= 50: _otorgar(db, correo, "veterano")
+        # Socialite (50+ mensajes)
+        n_msgs = db.execute("SELECT COUNT(*) FROM chat_mensajes WHERE correo_usuario=?", (correo,)).fetchone()[0]
+        if n_msgs >= 50: _otorgar(db, correo, "social")
+        # Explorador (3+ grupos)
+        n_grupos = db.execute("SELECT COUNT(*) FROM miembros_grupo WHERE correo_usuario=?", (correo,)).fetchone()[0]
+        if n_grupos >= 3: _otorgar(db, correo, "explorador")
+        # Leyenda (50+ puntos en algún grupo)
+        best = db.execute("SELECT MAX(puntos) FROM puntos_historial WHERE correo_usuario=?", (correo,)).fetchone()
+        if best and best[0] and best[0] >= 50: _otorgar(db, correo, "leyenda")
+        # Perfeccionista (al menos 1 MU en algún registro histórico)
+        # Se otorgará desde obtener_posiciones cuando se detecte mu > 0
+        # Madrugador: pronosticó en cada jornada que tuvo partidos
+        # Se otorgará desde obtener_posiciones comparando jornadas vs pronósticos
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error verificando logros para {correo}: {e}")
+
 def obtener_url_espn(liga: str):
     hoy = datetime.now(timezone.utc)
     inicio = (hoy - timedelta(days=15)).strftime('%Y%m%d')
     fin = (hoy + timedelta(days=60)).strftime('%Y%m%d')
-    if liga == "champions": torneo_espn = "uefa.champions"
-    elif liga == "libertadores": torneo_espn = "conmebol.libertadores"
-    elif liga == "betplay": torneo_espn = "col.1"
-    else: torneo_espn = liga
+    torneo_espn = LIGAS_ESPN.get(liga, liga)
     return f"https://site.api.espn.com/apis/site/v2/sports/soccer/{torneo_espn}/scoreboard?dates={inicio}-{fin}"
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
@@ -156,29 +250,38 @@ def get_current_user(token: str = Header(None, alias="x-token"), db: sqlite3.Con
     if not token:
         raise HTTPException(status_code=401, detail="No proporcionaste un token de sesión.")
     token_hash = hash_token(token)
-    user = db.execute("SELECT correo FROM usuarios WHERE token = ?", (token_hash,)).fetchone()
+    user = db.execute("SELECT correo, token_expiry FROM usuarios WHERE token = ?", (token_hash,)).fetchone()
     if not user:
         raise HTTPException(status_code=401, detail="Sesión inválida o expirada.")
+    if user[1]:
+        try:
+            expiry = datetime.fromisoformat(user[1])
+            if datetime.now(timezone.utc) > expiry:
+                raise HTTPException(status_code=401, detail="Tu sesión ha expirado. Vuelve a iniciar sesión.")
+        except (ValueError, TypeError): pass
     return user[0]
 
 # --- RUTAS ---
 @app.post("/api/auth/registro")
-def registro(u: UsuarioRegistro, db: sqlite3.Connection = Depends(get_db)):
+@limiter.limit("5/minute")
+def registro(request: Request, u: UsuarioRegistro, db: sqlite3.Connection = Depends(get_db)):
     try:
         nuevo_token = secrets.token_hex(16)
         hashed_pwd = pwd_context.hash(u.password)
-        db.execute("INSERT INTO usuarios (correo, nombre, password, avatar, alertas, token) VALUES (?, ?, ?, '\U0001f464', 1, ?)", 
-                   (u.correo, u.nombre, hashed_pwd, hash_token(nuevo_token)))
+        token_expiry = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
+        db.execute("INSERT INTO usuarios (correo, nombre, password, avatar, alertas, token, token_expiry) VALUES (?, ?, ?, '👤', 1, ?, ?)", 
+                   (u.correo, u.nombre, hashed_pwd, hash_token(nuevo_token), token_expiry))
         db.commit()
         return {"mensaje": "OK"}
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="El correo ya está registrado")
     except Exception as e:
-        print(f"Error en registro: {e}")
+        logger.error(f"Error en registro: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 @app.post("/api/auth/login")
-def login(u: UsuarioLogin, db: sqlite3.Connection = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, u: UsuarioLogin, db: sqlite3.Connection = Depends(get_db)):
     user = db.execute("SELECT nombre, correo, avatar, alertas, password FROM usuarios WHERE correo=?", (u.correo,)).fetchone()
     valid_password = False
     if user:
@@ -193,7 +296,8 @@ def login(u: UsuarioLogin, db: sqlite3.Connection = Depends(get_db)):
 
     if user and valid_password:
         nuevo_token = secrets.token_hex(16)
-        db.execute("UPDATE usuarios SET token=? WHERE correo=?", (hash_token(nuevo_token), u.correo))
+        token_expiry = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
+        db.execute("UPDATE usuarios SET token=?, token_expiry=? WHERE correo=?", (hash_token(nuevo_token), token_expiry, u.correo))
         db.commit()
         return {"nombre": user[0], "correo": user[1], "avatar": user[2], "alertas": bool(user[3]), "token": nuevo_token}
     raise HTTPException(status_code=401, detail="Credenciales incorrectas")
@@ -221,7 +325,7 @@ def actualizar_perfil(req: PerfilActualizar, db: sqlite3.Connection = Depends(ge
         db.commit()
     except HTTPException: raise
     except Exception as e:
-        print(f"Error actualizando perfil: {e}")
+        logger.error(f"Error actualizando perfil: {e}")
         raise HTTPException(status_code=500, detail="Error interno al actualizar perfil")
     return {"mensaje": "Perfil actualizado con éxito"}
 
@@ -244,12 +348,17 @@ def eliminar_cuenta(req: CuentaEliminar, db: sqlite3.Connection = Depends(get_db
             cur.execute(f"DELETE FROM grupos WHERE id IN ({placeholders})", ids_grupos)
             cur.execute(f"DELETE FROM miembros_grupo WHERE grupo_id IN ({placeholders})", ids_grupos)
             cur.execute(f"DELETE FROM pronosticos WHERE grupo_id IN ({placeholders})", ids_grupos)
+            cur.execute(f"DELETE FROM chat_mensajes WHERE grupo_id IN ({placeholders})", ids_grupos)
+            cur.execute(f"DELETE FROM puntos_historial WHERE grupo_id IN ({placeholders})", ids_grupos)
         cur.execute("DELETE FROM usuarios WHERE correo=?", (user_req,))
         cur.execute("DELETE FROM miembros_grupo WHERE correo_usuario=?", (user_req,))
         cur.execute("DELETE FROM pronosticos WHERE correo_usuario=?", (user_req,))
+        cur.execute("DELETE FROM chat_mensajes WHERE correo_usuario=?", (user_req,))
+        cur.execute("DELETE FROM puntos_historial WHERE correo_usuario=?", (user_req,))
+        cur.execute("DELETE FROM logros WHERE correo=?", (user_req,))
         db.commit()
     except Exception as e:
-        print(f"Error eliminando cuenta: {e}")
+        logger.error(f"Error eliminando cuenta: {e}")
         raise HTTPException(status_code=500, detail="Error interno al eliminar cuenta")
     return {"mensaje": "Cuenta y datos eliminados correctamente"}
 
@@ -272,29 +381,29 @@ def crear_grupo(g: GrupoCrear, db: sqlite3.Connection = Depends(get_db), user_re
         return {"codigo": cod, "id": gid}
     except HTTPException: raise
     except Exception as e:
-        print(f"Error creando grupo: {e}"); raise HTTPException(status_code=500, detail="Error interno al crear grupo")
+        logger.error(f"Error creando grupo: {e}"); raise HTTPException(status_code=500, detail="Error interno al crear grupo")
 
 @app.post("/api/grupos/unirse")
 def unirse(d: GrupoUnirse, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
     cur = db.cursor()
     count = cur.execute("SELECT COUNT(*) FROM miembros_grupo WHERE correo_usuario=?", (user_req,)).fetchone()[0]
     if count >= 5: raise HTTPException(status_code=400, detail="Has alcanzado el límite máximo de 5 grupos por usuario.")
-    print(f"Intento unirse a grupo: {d.codigo} (Upper: {d.codigo.upper()}) por usuario {user_req}")
+    logger.info(f"Intento unirse a grupo: {d.codigo.upper()} por {user_req}")
     grupo = cur.execute("SELECT id, limite FROM grupos WHERE codigo=?", (d.codigo.upper(),)).fetchone()
     if not grupo: 
-        print(f"Error: Código {d.codigo.upper()} no existe en DB.")
+        logger.warning(f"Código {d.codigo.upper()} no existe en DB")
         raise HTTPException(status_code=404, detail=f"Código de grupo '{d.codigo}' no encontrado")
     grupo_id, limite = grupo[0], grupo[1]
     miembros_actuales = cur.execute("SELECT COUNT(*) FROM miembros_grupo WHERE grupo_id=?", (grupo_id,)).fetchone()[0]
-    print(f"Grupo ID: {grupo_id}, Miembros: {miembros_actuales}, Limite: {limite}")
+    logger.debug(f"Grupo {grupo_id}: {miembros_actuales}/{limite} miembros")
     if miembros_actuales >= limite: raise HTTPException(status_code=400, detail="Este grupo ya está lleno.")
     try:
         cur.execute("INSERT INTO miembros_grupo VALUES (?,?)", (grupo_id, user_req))
         db.commit()
-        print(f"Usuario {user_req} unido exitosamente al grupo {grupo_id}")
+        logger.info(f"Usuario {user_req} unido a grupo {grupo_id}")
         return {"mensaje": "OK"}
     except Exception as e: 
-        print(f"Error SQL al unirse: {e}")
+        logger.error(f"Error SQL al unirse: {e}")
         raise HTTPException(status_code=400, detail="Ya eres miembro de este grupo o error interno")
 
 @app.post("/api/grupos/salir")
@@ -315,6 +424,8 @@ def eliminar_grupo(req: GrupoAccion, db: sqlite3.Connection = Depends(get_db), u
     cur.execute("DELETE FROM grupos WHERE id=?", (req.grupo_id,))
     cur.execute("DELETE FROM miembros_grupo WHERE grupo_id=?", (req.grupo_id,))
     cur.execute("DELETE FROM pronosticos WHERE grupo_id=?", (req.grupo_id,))
+    cur.execute("DELETE FROM chat_mensajes WHERE grupo_id=?", (req.grupo_id,))
+    cur.execute("DELETE FROM puntos_historial WHERE grupo_id=?", (req.grupo_id,))
     db.commit()
     return {"mensaje": "Grupo eliminado"}
 
@@ -325,11 +436,23 @@ def mis_grupos(db: sqlite3.Connection = Depends(get_db), user_req: str = Depends
     return {"grupos": [dict(r) for r in res]}
 
 @app.post("/api/chat/enviar")
-def enviar_mensaje(m: ChatMensaje, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def enviar_mensaje(request: Request, m: ChatMensaje, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
     es_miembro = db.execute("SELECT 1 FROM miembros_grupo WHERE grupo_id=? AND correo_usuario=?", (m.grupo_id, user_req)).fetchone()
     if not es_miembro: raise HTTPException(status_code=403, detail="No eres miembro de este grupo.")
-    db.execute("INSERT INTO chat_mensajes (grupo_id, correo_usuario, mensaje) VALUES (?,?,?)", (m.grupo_id, user_req, m.mensaje))
+    
+    cur = db.cursor()
+    cur.execute("INSERT INTO chat_mensajes (grupo_id, correo_usuario, mensaje) VALUES (?,?,?)", (m.grupo_id, user_req, m.mensaje))
+    msg_id = cur.lastrowid
     db.commit()
+    verificar_y_otorgar_logros(db, user_req)
+
+    db.row_factory = sqlite3.Row
+    res = db.execute("SELECT c.*, u.nombre, u.avatar FROM chat_mensajes c JOIN usuarios u ON c.correo_usuario = u.correo WHERE c.id = ?", (msg_id,)).fetchone()
+    if res:
+        mensaje_enviar = dict(res)
+        await ws_manager.broadcast({"tipo": "chat", "mensaje": mensaje_enviar}, m.grupo_id)
+
     return {"mensaje": "Enviado"}
 
 @app.get("/api/chat/{grupo_id}")
@@ -346,6 +469,37 @@ def obtener_chat(grupo_id: int, since: Optional[str] = None, db: sqlite3.Connect
         mensajes.reverse()
         return {"mensajes": mensajes}
 
+@app.websocket("/api/ws/chat/{grupo_id}")
+async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: int, token: str):
+    token_hash = hash_token(token)
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        user = db.execute("SELECT correo, token_expiry FROM usuarios WHERE token = ?", (token_hash,)).fetchone()
+        if not user:
+            await websocket.close(code=1008)
+            return
+        
+        correo_usuario = user[0]
+        es_miembro = db.execute("SELECT 1 FROM miembros_grupo WHERE grupo_id=? AND correo_usuario=?", (grupo_id, correo_usuario)).fetchone()
+        
+        if not es_miembro:
+            await websocket.close(code=1008)
+            return
+            
+        await ws_manager.connect(websocket, grupo_id)
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, grupo_id)
+    except Exception:
+        ws_manager.disconnect(websocket, grupo_id)
+    finally:
+        try: next(db_gen)
+        except StopIteration: pass
+
 @app.get("/api/utils/server-time")
 def get_server_time():
     return {"iso": datetime.now(timezone.utc).isoformat()}
@@ -353,6 +507,13 @@ def get_server_time():
 @app.get("/api/partidos/{liga}")
 async def obtener_partidos(liga: str):
     url_dinamica = obtener_url_espn(liga)
+    cache_key = f"partidos_{liga}"
+    
+    if cache_key in espn_cache:
+        cached_data, timestamp = espn_cache[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return cached_data
+
     async with httpx.AsyncClient() as client:
         try:
             r = await client.get(url_dinamica, timeout=8.0)
@@ -380,16 +541,26 @@ async def obtener_partidos(liga: str):
                         "goles_l": eq1.get('score', '0'), "visitante": n2, "visitante_logo": eq2.get('team', {}).get('logo', ''),
                         "goles_v": eq2.get('score', '0')
                     })
-            return {"estado": "exito", "partidos": procesados}
+            resultado = {"estado": "exito", "partidos": procesados}
+            espn_cache[cache_key] = (resultado, time.time())
+            return resultado
         except Exception: return {"estado": "error"}
 
 @app.get("/api/partidos/detalle/{evento_id}")
 async def obtener_detalle_partido(evento_id: str):
+    cache_key = f"detalle_{evento_id}"
+    if cache_key in espn_cache:
+        cached_data, timestamp = espn_cache[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return cached_data
+
     async with httpx.AsyncClient() as client:
         try:
             url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event={evento_id}"
             r = await client.get(url, timeout=10.0)
-            return r.json()
+            resultado = r.json()
+            espn_cache[cache_key] = (resultado, time.time())
+            return resultado
         except Exception: raise HTTPException(status_code=502, detail="Error al conectar con el proveedor de datos")
 
 @app.post("/api/pronosticos/guardar")
@@ -412,6 +583,7 @@ def guardar(req: GuardarPronosticosRequest, db: sqlite3.Connection = Depends(get
                                 fecha_partido = datetime.fromisoformat(fecha_str.replace('Z', '+00:00'))
                                 if ahora >= fecha_partido: raise HTTPException(status_code=400, detail="Partido ya iniciado.")
                 else: raise HTTPException(status_code=503, detail="Error de validación temporal.")
+        except HTTPException: raise
         except Exception: raise HTTPException(status_code=503, detail="No se pudo validar la hora.")
         for p in req.pronosticos:
             db.execute('''INSERT INTO pronosticos (grupo_id, correo_usuario, id_partido, goles_local, goles_visitante)
@@ -419,11 +591,15 @@ def guardar(req: GuardarPronosticosRequest, db: sqlite3.Connection = Depends(get
                             DO UPDATE SET goles_local=excluded.goles_local, goles_visitante=excluded.goles_visitante''',
                          (req.grupo_id, user_req, p.id_partido, p.goles_local, p.goles_visitante))
         db.commit()
+        verificar_y_otorgar_logros(db, user_req)
         return {"mensaje": "Pronósticos guardados"}
+    except HTTPException: raise
     except Exception: raise HTTPException(status_code=500, detail="Error al guardar")
 
 @app.get("/api/pronosticos/{grupo_id}/{correo}")
 def get_pronosticos(grupo_id: int, correo: str, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+    es_miembro = db.execute("SELECT 1 FROM miembros_grupo WHERE grupo_id=? AND correo_usuario=?", (grupo_id, user_req)).fetchone()
+    if not es_miembro: raise HTTPException(status_code=403, detail="No eres miembro de este grupo.")
     db.row_factory = sqlite3.Row
     res = db.execute("SELECT id_partido, goles_local, goles_visitante FROM pronosticos WHERE grupo_id=? AND correo_usuario=?", (grupo_id, correo)).fetchall()
     return {"pronosticos": [dict(r) for r in res]}
@@ -487,7 +663,7 @@ async def obtener_posiciones(grupo_id: int, db: sqlite3.Connection = Depends(get
                     if len(c_comp) >= 2:
                         reales[str(ev.get('id', ''))] = (int(c_comp[0].get('score', 0)), int(c_comp[1].get('score', 0)))
         except Exception as e:
-            print(f"Error fetching ESPN data: {e}")
+            logger.warning(f"Error fetching ESPN data: {e}")
     
     tabla: List[UserStats] = []
     for m in miembros:
@@ -534,9 +710,13 @@ async def obtener_posiciones(grupo_id: int, db: sqlite3.Connection = Depends(get
     try:
         for t in tabla: 
             db.execute("INSERT OR REPLACE INTO puntos_historial (grupo_id, correo_usuario, puntos) VALUES (?,?,?)", (grupo_id, t.correo, t.puntos))
+            # Otorgar badge Leyenda si alcanza 50+ pts
+            if t.puntos >= 50: _otorgar(db, t.correo, "leyenda")
+            # Otorgar badge Perfeccionista si tiene MU > 0
+            if t.mu > 0: _otorgar(db, t.correo, "perfeccionista")
         db.commit()
     except Exception as e:
-        print(f"Error updating points history: {e}")
+        logger.error(f"Error updating points history: {e}")
     return {"posiciones": tabla_dicts}
 
 @app.get("/api/posiciones/historial/{grupo_id}")
@@ -548,6 +728,72 @@ def obtener_historial_puntos(grupo_id: int, db: sqlite3.Connection = Depends(get
         if c_u not in historial: historial[c_u] = []
         historial[c_u].append({"puntos": r[1], "fecha": r[2]})
     return {"historial": historial}
+
+# --- ESTADÍSTICAS PERSONALES ---
+@app.get("/api/stats/personal")
+def stats_personal(db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+    try:
+        db.row_factory = sqlite3.Row
+        # Total de pronósticos
+        n_pronos = db.execute("SELECT COUNT(*) as c FROM pronosticos WHERE correo_usuario=?", (user_req,)).fetchone()['c']
+        # Total de grupos
+        n_grupos = db.execute("SELECT COUNT(*) as c FROM miembros_grupo WHERE correo_usuario=?", (user_req,)).fetchone()['c']
+        # Total de mensajes
+        n_msgs = db.execute("SELECT COUNT(*) as c FROM chat_mensajes WHERE correo_usuario=?", (user_req,)).fetchone()['c']
+        # Puntos totales (suma del último registro de cada grupo)
+        grupos_ids = db.execute("SELECT grupo_id FROM miembros_grupo WHERE correo_usuario=?", (user_req,)).fetchall()
+        puntos_totales = 0
+        mejor_grupo = None
+        mejor_puntos = 0
+        for g in grupos_ids:
+            gid = g['grupo_id']
+            hist = db.execute("SELECT puntos FROM puntos_historial WHERE grupo_id=? AND correo_usuario=? ORDER BY fecha DESC LIMIT 1", (gid, user_req)).fetchone()
+            if hist:
+                pts = hist['puntos']
+                puntos_totales += pts
+                if pts > mejor_puntos:
+                    mejor_puntos = pts
+                    gi = db.execute("SELECT nombre FROM grupos WHERE id=?", (gid,)).fetchone()
+                    mejor_grupo = gi['nombre'] if gi else None
+        # Logros
+        logros_raw = db.execute("SELECT badge_id, fecha FROM logros WHERE correo=? ORDER BY fecha DESC", (user_req,)).fetchall()
+        logros = []
+        for l in logros_raw:
+            bid = l['badge_id']
+            if bid in BADGES:
+                logros.append({**BADGES[bid], "badge_id": bid, "fecha": l['fecha']})
+        return {
+            "puntos_totales": puntos_totales,
+            "grupos": n_grupos,
+            "pronosticos": n_pronos,
+            "mensajes": n_msgs,
+            "mejor_grupo": mejor_grupo,
+            "mejor_puntos": mejor_puntos,
+            "logros": logros
+        }
+    except Exception as e:
+        logger.error(f"Error stats personal: {e}")
+        raise HTTPException(status_code=500, detail="Error al obtener estadísticas")
+
+@app.get("/api/logros/{correo}")
+def get_logros(correo: str, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+    # Solo puedes ver tus propios logros o los de alguien en tu mismo grupo
+    if correo != user_req:
+        shared = db.execute("""SELECT 1 FROM miembros_grupo a JOIN miembros_grupo b ON a.grupo_id = b.grupo_id WHERE a.correo_usuario=? AND b.correo_usuario=? LIMIT 1""", (user_req, correo)).fetchone()
+        if not shared: raise HTTPException(status_code=403, detail="No tienes permiso para ver estos logros.")
+    db.row_factory = sqlite3.Row
+    logros_raw = db.execute("SELECT badge_id, fecha FROM logros WHERE correo=? ORDER BY fecha DESC", (correo,)).fetchall()
+    logros = []
+    for l in logros_raw:
+        bid = l['badge_id']
+        if bid in BADGES:
+            logros.append({**BADGES[bid], "badge_id": bid, "fecha": l['fecha']})
+    all_badges = [{**v, "badge_id": k, "obtenido": any(l['badge_id'] == k for l in logros_raw)} for k, v in BADGES.items()]
+    return {"logros": logros, "todos": all_badges}
+
+@app.get("/api/ligas")
+def get_ligas():
+    return {"ligas": [{"id": k, "nombre": k.replace('_', ' ').title()} for k in LIGAS_ESPN.keys()]}
 
 if os.path.exists("js"): app.mount("/js", StaticFiles(directory="js"), name="js")
 @app.get('/manifest.json')

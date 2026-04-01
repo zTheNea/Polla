@@ -10,6 +10,7 @@ function cambiarModoAuth(modo) {
     const btnSubmit = document.getElementById('btn-submit');
     const textoAlterno = document.getElementById('texto-alterno');
     const ayudaPassword = document.getElementById('ayuda-password');
+    const passwordInput = document.getElementById('password-input');
     const contenedorTerminos = document.getElementById('contenedor-terminos');
     const checkDatos = document.getElementById('check-datos');
     const titulo = document.querySelector('#panel-login h2');
@@ -17,7 +18,7 @@ function cambiarModoAuth(modo) {
 
     if (modo === 'registro') {
         modoRegistro = true;
-        document.getElementById('password-input').value = '';
+        passwordInput.value = '';
         contenedorNombre.classList.remove('max-h-0', 'opacity-0');
         contenedorNombre.classList.add('max-h-24', 'opacity-100');
         nombreInput.required = true;
@@ -34,7 +35,7 @@ function cambiarModoAuth(modo) {
         textoAlterno.innerHTML = '¿Ya tienes cuenta? <button type="button" onclick="cambiarModoAuth(\'login\')" class="text-blue-600 dark:text-blue-400 font-bold hover:underline">Inicia Sesión</button>';
     } else {
         modoRegistro = false;
-        document.getElementById('password-input').value = '';
+        passwordInput.value = '';
         contenedorNombre.classList.add('max-h-0', 'opacity-0');
         contenedorNombre.classList.remove('max-h-24', 'opacity-100');
         nombreInput.required = false;

@@ -8,7 +8,7 @@ window.fetch = async function () {
     let [resource, config] = arguments;
     if (!config) config = {};
     if (!config.headers) config.headers = {};
-    
+
     // Inyectar credenciales solo en llamadas a nuestra propia API para evitar errores de CORS con ESPN
     const urlStr = typeof resource === 'string' ? resource : (resource?.url || '');
     const esApiInterna = urlStr.startsWith('/api/') || urlStr.startsWith(window.location.origin + '/api/');
@@ -21,7 +21,7 @@ window.fetch = async function () {
             config.headers['x-correo'] = correo;
         }
     }
-    
+
     try {
         const response = await originalFetch(resource, config);
         // Expulsión forzada si el token expiró o es un intento de spoofing
@@ -31,6 +31,9 @@ window.fetch = async function () {
         }
         return response;
     } catch (error) {
+        if (!navigator.onLine) {
+            if (typeof mostrarToast === 'function') mostrarToast('❌ Sin conexión. Revisa tu red.');
+        }
         throw error;
     }
 };
@@ -82,10 +85,15 @@ function renderizarPantalla(idPantallaDestino) {
             if (idPantallaDestino !== 'vista-login') {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
-            
+
             // Hook post-navegación: cargar grupos al entrar al dashboard
             if (idPantallaDestino === 'vista-dashboard' && typeof cargarMisGrupos === 'function') {
                 cargarMisGrupos();
+                if (typeof checkOnboarding === 'function') checkOnboarding();
+            }
+            // Hook: cargar estadísticas personales
+            if (idPantallaDestino === 'vista-stats' && typeof cargarStatsPersonal === 'function') {
+                cargarStatsPersonal();
             }
             // Hook de restauración al recargar la página directamente en la vista
             if (idPantallaDestino === 'vista-grupo' && typeof inicializarVistaGrupo === 'function') {
@@ -109,6 +117,26 @@ function renderizarPantalla(idPantallaDestino) {
                 // Si vamos al partido, mantenemos live pero paramos chat (ahorra batería)
                 if (typeof detenerPollingChat === 'function') detenerPollingChat();
             }
+            // Actualizar SEO/Meta Titles
+            const baseTitle = "Polla Futbolera";
+            let newTitle = baseTitle;
+            let newDesc = "Compite con tus amigos en la plataforma más segura y rápida de predicciones deportivas.";
+            
+            if (idPantallaDestino === 'vista-grupo') {
+                const gNombre = localStorage.getItem('grupoActivoNombre') || 'Grupo';
+                newTitle = `${gNombre} | ${baseTitle}`;
+                newDesc = `Únete a mi grupo "${gNombre}" y compite por el primer lugar en pronósticos deportivos.`;
+            } else if (idPantallaDestino === 'vista-partido') {
+                newTitle = `Partido en Vivo | ${baseTitle}`;
+            } else if (idPantallaDestino === 'vista-stats') {
+                newTitle = `Mis Estadísticas | ${baseTitle}`;
+            }
+
+            document.title = newTitle;
+            const metaTitle = document.querySelector('meta[property="og:title"]');
+            const metaDesc = document.querySelector('meta[property="og:description"]');
+            if(metaTitle) metaTitle.content = newTitle;
+            if(metaDesc) metaDesc.content = newDesc;
         }
     }, delay);
 }
@@ -198,16 +226,16 @@ function hexToRgb(hex) {
 }
 
 function adjustColor(hex, amt) {
-    let col = hex.replace('#','');
-    let r = parseInt(col.substring(0,2),16);
-    let g = parseInt(col.substring(2,4),16);
-    let b = parseInt(col.substring(4,6),16);
+    let col = hex.replace('#', '');
+    let r = parseInt(col.substring(0, 2), 16);
+    let g = parseInt(col.substring(2, 4), 16);
+    let b = parseInt(col.substring(4, 6), 16);
     r = Math.max(0, Math.min(255, r + amt));
     g = Math.max(0, Math.min(255, g + amt));
     b = Math.max(0, Math.min(255, b + amt));
-    const nr = r.toString(16).padStart(2,'0');
-    const ng = g.toString(16).padStart(2,'0');
-    const nb = b.toString(16).padStart(2,'0');
+    const nr = r.toString(16).padStart(2, '0');
+    const ng = g.toString(16).padStart(2, '0');
+    const nb = b.toString(16).padStart(2, '0');
     return `#${nr}${ng}${nb}`;
 }
 
@@ -218,9 +246,9 @@ function getContrastColor(hex) {
     return brightness > 145 ? '#000000' : '#ffffff';
 }
 
-window.aplicarColorPersonalizado = function(hex) {
+window.aplicarColorPersonalizado = function (hex) {
     if (!hex || !hex.startsWith('#')) return;
-    
+
     const root = document.documentElement;
     root.style.setProperty('--color-primary', hex);
     root.style.setProperty('--color-primary-50', adjustColor(hex, 180));
@@ -230,13 +258,13 @@ window.aplicarColorPersonalizado = function(hex) {
     root.style.setProperty('--color-primary-800', adjustColor(hex, -60));
     root.style.setProperty('--color-primary-900', adjustColor(hex, -90));
     root.style.setProperty('--color-primary-contrast', getContrastColor(hex));
-    
+
     // El secondary solía ser el primary-700
     root.style.setProperty('--color-secondary', adjustColor(hex, -30));
-    
+
     localStorage.setItem('tema-color-hex', hex);
     localStorage.removeItem('tema-preferido');
-    
+
     const preview = document.getElementById('color-preview-circle');
     if (preview) {
         preview.style.backgroundColor = hex;
@@ -245,7 +273,7 @@ window.aplicarColorPersonalizado = function(hex) {
 };
 
 // Deprecated: ahora usamos prisma, pero se mantiene para retrocompatibilidad
-window.aplicarTema = function(nombre) {
+window.aplicarTema = function (nombre) {
     const TEMAS_PRESETS = {
         blue: '#2563eb', verde: '#059669', rojo: '#dc2626', morado: '#8b5cf6', oro: '#d97706'
     };
@@ -266,7 +294,7 @@ function abrirPerfil() {
     // Cargar nombre y correo
     const correo = localStorage.getItem('usuarioCorreo') || '-';
     const nombreActual = localStorage.getItem('usuarioNombre') || '';
-    
+
     document.getElementById('perfil-nombre-input').value = nombreActual;
     const correoDisplay = document.getElementById('perfil-correo-display');
     if (correoDisplay) {
@@ -284,16 +312,16 @@ function abrirPerfil() {
     }
 
     renderizarAvatares();
-    
+
     // Resetear visibilidad del selector ( v2.2)
     const selectorCont = document.getElementById('selector-avatar-container');
     if (selectorCont) selectorCont.classList.add('hidden');
-    
+
     // Inicializar indicadores de tema (v2.2)
     const temaHex = localStorage.getItem('tema-color-hex') || '#2563eb';
     const picker = document.getElementById('color-picker');
     const previewColor = document.getElementById('color-preview-circle');
-    
+
     if (picker) picker.value = temaHex;
     if (previewColor) previewColor.style.backgroundColor = temaHex;
 
@@ -332,7 +360,7 @@ function seleccionarAvatar(emoji, btn) {
     btn.classList.remove('bg-gray-100', 'dark:bg-gray-700/50', 'hover:bg-gray-200', 'dark:hover:bg-gray-600');
     btn.classList.add('ring-4', 'ring-blue-500', 'bg-blue-100', 'dark:bg-blue-900/60', 'scale-110', 'shadow-lg');
     avatarSeleccionado = emoji;
-    
+
     // Actualizar preview en vivo
     const preview = document.getElementById('perfil-avatar-preview');
     if (preview) preview.innerText = emoji;
@@ -344,7 +372,7 @@ function seleccionarAvatar(emoji, btn) {
 function toggleSelectorAvatar(forzar) {
     const selector = document.getElementById('selector-avatar-container');
     if (!selector) return;
-    
+
     if (forzar !== undefined) {
         if (forzar) selector.classList.remove('hidden');
         else selector.classList.add('hidden');
@@ -431,7 +459,7 @@ async function guardarPerfil() {
             localStorage.setItem('usuarioNombre', nuevoNombre);
             localStorage.setItem('usuarioAvatar', avatarSeleccionado);
             localStorage.setItem('usuarioAlertas', activarAlertas);
-            
+
             // Actualización inmediata del Dashboard
             const dashNombre = document.getElementById('nombre-dashboard');
             const dashAvatar = document.getElementById('avatar-dashboard');
@@ -439,11 +467,11 @@ async function guardarPerfil() {
             if (dashAvatar) dashAvatar.innerText = avatarSeleccionado;
 
             mostrarToast("✅ ¡Ajustes guardados con éxito! 🏆");
-            
+
             // Limpiar campos sensibles
             document.getElementById('perfil-pass-actual').value = '';
             document.getElementById('perfil-pass-nueva').value = '';
-            
+
             setTimeout(() => cambiarPantalla('vista-dashboard'), 800);
         } else {
             const errorMsg = typeof traducirErrorAuth === 'function' ? traducirErrorAuth(data.detail) : data.detail;
@@ -474,7 +502,7 @@ async function eliminarCuenta() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ correo: correo })
         });
-        
+
         if (response.ok) {
             mostrarToast("¡Tu cuenta ha sido eliminada con éxito! Adiós. 👋");
             setTimeout(() => {
@@ -536,7 +564,7 @@ function mostrarToast(mensaje) {
         contenedor.className = 'fixed top-5 right-5 z-[9999] flex flex-col gap-3 pointer-events-none';
         document.body.appendChild(contenedor);
     }
-    
+
     if (contenedor.children.length >= 3) {
         contenedor.children[0].remove();
     }
@@ -595,7 +623,7 @@ function mostrarToast(mensaje) {
     }, 4000); // 4 segundos para mejor lectura
 }
 
-window.verificarPermisoNotificaciones = async function(activado) {
+window.verificarPermisoNotificaciones = async function (activado) {
     if (!activado) return;
 
     if (!("Notification" in window)) {
