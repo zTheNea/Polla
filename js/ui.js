@@ -24,8 +24,8 @@ window.fetch = async function () {
 
     try {
         const response = await originalFetch(resource, config);
-        // Expulsión forzada si el token expiró o es un intento de spoofing
-        if (response.status === 401 && typeof cerrarSesion === 'function') {
+        // Expulsión forzada si el token expiró (solo en API interna - no afecta CDNs/terceros)
+        if (esApiInterna && response.status === 401 && typeof cerrarSesion === 'function') {
             if (typeof mostrarToast === 'function') mostrarToast('⚠️ Tu sesión ha expirado. Vuelve a iniciar sesión.');
             setTimeout(() => cerrarSesion(), 1500);
         }
@@ -100,6 +100,11 @@ function renderizarPantalla(idPantallaDestino) {
                 inicializarVistaGrupo();
             }
 
+            // Hook al recargar la vista del perfil
+            if (idPantallaDestino === 'vista-perfil' && typeof cargarDatosPerfil === 'function') {
+                cargarDatosPerfil();
+            }
+
             if (idPantallaDestino === 'vista-partido' && typeof verDetallesPartido === 'function') {
                 const pid = localStorage.getItem('partidoActivoId');
                 if (pid) {
@@ -116,6 +121,11 @@ function renderizarPantalla(idPantallaDestino) {
             } else if (idPantallaDestino === 'vista-partido') {
                 // Si vamos al partido, mantenemos live pero paramos chat (ahorra batería)
                 if (typeof detenerPollingChat === 'function') detenerPollingChat();
+            }
+            
+            // Fuga de datos mitigada: siempre forzar destrucción del poller de detalle al salir
+            if (idPantallaDestino !== 'vista-partido' && typeof window.detenerPollingDetalle === 'function') {
+                window.detenerPollingDetalle();
             }
             // Actualizar SEO/Meta Titles
             const baseTitle = "Polla Futbolera";
@@ -164,7 +174,6 @@ function cerrarModal(id) {
 const themeToggleBtn = document.getElementById('theme-toggle');
 const themeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
 const themeToggleLightIcon = document.getElementById('theme-toggle-light-icon');
-const layer = document.getElementById('theme-transition-layer');
 
 let isDark = false;
 if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -177,39 +186,18 @@ if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localS
 
 if (themeToggleBtn) {
     themeToggleBtn.addEventListener('click', function (e) {
-        if (this.classList.contains('pointer-events-none')) return;
-        this.classList.add('pointer-events-none');
-
-        layer.style.backgroundColor = isDark ? '#f9fafb' : '#111827';
-
-        const btnRect = this.getBoundingClientRect();
-        const btnCenterX = btnRect.left + btnRect.width / 2;
-        const btnCenterY = btnRect.top + btnRect.height / 2;
-
-        layer.style.left = `${btnCenterX - 24}px`;
-        layer.style.top = `${btnCenterY - 24}px`;
-        layer.style.right = 'auto';
-
-        layer.classList.add('wave-expand');
-
+        if (isDark) {
+            document.documentElement.classList.remove('dark');
+            localStorage.setItem('color-theme', 'light');
+            isDark = false;
+        } else {
+            document.documentElement.classList.add('dark');
+            localStorage.setItem('color-theme', 'dark');
+            isDark = true;
+        }
+        
         if (themeToggleDarkIcon) themeToggleDarkIcon.classList.toggle('hidden');
         if (themeToggleLightIcon) themeToggleLightIcon.classList.toggle('hidden');
-
-        setTimeout(() => {
-            if (isDark) {
-                document.documentElement.classList.remove('dark');
-                localStorage.setItem('color-theme', 'light');
-            } else {
-                document.documentElement.classList.add('dark');
-                localStorage.setItem('color-theme', 'dark');
-            }
-        }, 250);
-
-        setTimeout(() => {
-            layer.classList.remove('wave-expand');
-            isDark = !isDark;
-            this.classList.remove('pointer-events-none');
-        }, 600);
     });
 }
 
@@ -281,6 +269,14 @@ window.aplicarTema = function (nombre) {
     aplicarColorPersonalizado(hex);
 };
 
+window.restaurarColorPorDefecto = function() {
+    const defaultColor = '#2563eb';
+    aplicarColorPersonalizado(defaultColor);
+    const picker = document.getElementById('color-picker');
+    if (picker) picker.value = defaultColor;
+    if (typeof mostrarToast === 'function') mostrarToast("Tema restaurado al color por defecto 🎨");
+};
+
 
 
 // ==========================================
@@ -290,20 +286,22 @@ window.aplicarTema = function (nombre) {
 let avatarSeleccionado = '👤';
 const avataresDisponibles = ['👤', '🦁', '🦅', '🦈', '⚽', '🏆', '🥇', '🧤', '🏟️', '👑', '👽', '🤖', '🐶', '🦊', '🐻'];
 
-function abrirPerfil() {
+function cargarDatosPerfil() {
     // Cargar nombre y correo
     const correo = localStorage.getItem('usuarioCorreo') || '-';
     const nombreActual = localStorage.getItem('usuarioNombre') || '';
 
-    document.getElementById('perfil-nombre-input').value = nombreActual;
-    const correoDisplay = document.getElementById('perfil-correo-display');
-    if (correoDisplay) {
-        correoDisplay.querySelector('span').innerText = correo;
-    }
+    const nombreDisplay = document.getElementById('perfil-nombre-display');
+    if (nombreDisplay) nombreDisplay.innerText = nombreActual;
+    const correoDisplay = document.getElementById('perfil-correo-display-badge');
+    if (correoDisplay) correoDisplay.innerText = correo;
+
+    const perfilInput = document.getElementById('perfil-nombre-input');
+    if(perfilInput) perfilInput.value = nombreActual;
 
     avatarSeleccionado = localStorage.getItem('usuarioAvatar') || '👤';
-    const preview = document.getElementById('perfil-avatar-preview');
-    if (preview) preview.innerText = avatarSeleccionado;
+    const previewDisplay = document.getElementById('perfil-avatar-preview-display');
+    if (previewDisplay) previewDisplay.innerText = avatarSeleccionado;
 
     const alertasGuardadas = localStorage.getItem('usuarioAlertas');
     const toggleAlertas = document.getElementById('check-alertas');
@@ -313,30 +311,32 @@ function abrirPerfil() {
 
     renderizarAvatares();
 
-    // Resetear visibilidad del selector ( v2.2)
-    const selectorCont = document.getElementById('selector-avatar-container');
-    if (selectorCont) selectorCont.classList.add('hidden');
-
-    // Inicializar indicadores de tema (v2.2)
+    // Inicializar indicadores de tema
     const temaHex = localStorage.getItem('tema-color-hex') || '#2563eb';
     const picker = document.getElementById('color-picker');
     const previewColor = document.getElementById('color-preview-circle');
+    const hintColor = document.getElementById('hint-color');
 
     if (picker) picker.value = temaHex;
     if (previewColor) previewColor.style.backgroundColor = temaHex;
+    if (hintColor) hintColor.style.backgroundColor = temaHex;
+}
 
+function abrirPerfil() {
+    cargarDatosPerfil();
     cambiarPantalla('vista-perfil');
 }
 
 function renderizarAvatares() {
     const contenedor = document.getElementById('lista-avatars');
+    if (!contenedor) return;
     let html = '';
 
     avataresDisponibles.forEach(a => {
         const isSelected = a === avatarSeleccionado;
         const clasesActivo = isSelected
-            ? 'ring-4 ring-blue-500 bg-blue-100 dark:bg-blue-900/60 scale-110 shadow-lg'
-            : 'bg-gray-100 dark:bg-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-600';
+            ? 'ring-2 ring-blue-500 bg-blue-100 dark:bg-blue-900/60 scale-110 shadow-sm'
+            : 'bg-gray-50 dark:bg-gray-900/50 hover:bg-gray-100 dark:hover:bg-gray-800';
 
         html += `
             <button onclick="seleccionarAvatar('${a}', this)" type="button"
@@ -346,46 +346,21 @@ function renderizarAvatares() {
         `;
     });
 
-    if (contenedor) contenedor.innerHTML = html;
+    contenedor.innerHTML = html;
 }
 
-// Optimizado: solo actualiza clases del botón anterior y el nuevo, sin re-renderizar todo
 function seleccionarAvatar(emoji, btn) {
     const contenedor = document.getElementById('lista-avatars');
-    const prev = contenedor ? contenedor.querySelector('button.ring-4') : null;
+    const prev = contenedor ? contenedor.querySelector('button.ring-2') : null;
     if (prev) {
-        prev.classList.remove('ring-4', 'ring-blue-500', 'bg-blue-100', 'dark:bg-blue-900/60', 'scale-110', 'shadow-lg');
-        prev.classList.add('bg-gray-100', 'dark:bg-gray-700/50', 'hover:bg-gray-200', 'dark:hover:bg-gray-600');
+        prev.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-100', 'dark:bg-blue-900/60', 'scale-110', 'shadow-sm');
+        prev.classList.add('bg-gray-50', 'dark:bg-gray-900/50', 'hover:bg-gray-100', 'dark:hover:bg-gray-800');
     }
-    btn.classList.remove('bg-gray-100', 'dark:bg-gray-700/50', 'hover:bg-gray-200', 'dark:hover:bg-gray-600');
-    btn.classList.add('ring-4', 'ring-blue-500', 'bg-blue-100', 'dark:bg-blue-900/60', 'scale-110', 'shadow-lg');
+    btn.classList.remove('bg-gray-50', 'dark:bg-gray-900/50', 'hover:bg-gray-100', 'dark:hover:bg-gray-800');
+    btn.classList.add('ring-2', 'ring-blue-500', 'bg-blue-100', 'dark:bg-blue-900/60', 'scale-110', 'shadow-sm');
     avatarSeleccionado = emoji;
-
-    // Actualizar preview en vivo
-    const preview = document.getElementById('perfil-avatar-preview');
-    if (preview) preview.innerText = emoji;
-
-    // Colapsar selector tras elegir (opcional, para mejor UX)
-    toggleSelectorAvatar(false);
 }
 
-function toggleSelectorAvatar(forzar) {
-    const selector = document.getElementById('selector-avatar-container');
-    if (!selector) return;
-
-    if (forzar !== undefined) {
-        if (forzar) selector.classList.remove('hidden');
-        else selector.classList.add('hidden');
-    } else {
-        selector.classList.toggle('hidden');
-    }
-
-    if (!selector.classList.contains('hidden')) {
-        selector.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-}
-
-// Sincroniza nombre y avatar con el servidor (corrige desfase entre dispositivos)
 async function sincronizarPerfil() {
     const correo = localStorage.getItem('usuarioCorreo');
     if (!correo) return;
@@ -393,16 +368,15 @@ async function sincronizarPerfil() {
         const r = await fetch(`/api/perfil/${encodeURIComponent(correo)}`);
         if (!r.ok) return;
         const data = await r.json();
-        // Actualizar localStorage con los datos frescos del servidor
         localStorage.setItem('usuarioNombre', data.nombre);
         localStorage.setItem('usuarioAvatar', data.avatar);
         localStorage.setItem('usuarioAlertas', data.alertas);
-        // Actualizar UI del dashboard sin recargar página
+        
         const nombreEl = document.getElementById('nombre-dashboard');
         if (nombreEl) nombreEl.innerText = data.nombre;
         const avatarEl = document.getElementById('avatar-dashboard');
         if (avatarEl) avatarEl.innerText = data.avatar;
-    } catch (e) { /* silencioso: la UI usa localStorage como fallback */ }
+    } catch (e) { }
 }
 
 function toggleVisibilidadPassPerfil(inputId, iconId) {
@@ -418,70 +392,86 @@ function toggleVisibilidadPassPerfil(inputId, iconId) {
     }
 }
 
-async function guardarPerfil() {
-    const btnSave = document.querySelector('button[onclick="guardarPerfil()"]');
-    if (!btnSave) return;
-
-    const txtOriginal = btnSave.innerHTML;
-    const nuevoNombre = document.getElementById('perfil-nombre-input').value.trim();
-    const passActual = document.getElementById('perfil-pass-actual').value;
-    const passNueva = document.getElementById('perfil-pass-nueva').value;
-    const activarAlertas = document.getElementById('check-alertas').checked;
-    const correo = localStorage.getItem('usuarioCorreo');
-
-    if (nuevoNombre.length < 3 || nuevoNombre.length > 30) {
-        return mostrarToast("⚠️ Tu nombre debe tener entre 3 y 30 caracteres.");
+async function verificarToggleNotificaciones() {
+    const toggle = document.getElementById('check-alertas');
+    if(toggle && window.verificarPermisoNotificaciones) {
+        window.verificarPermisoNotificaciones(toggle.checked);
     }
+    
+    // Auto-guardado
+    const correo = localStorage.getItem('usuarioCorreo');
+    const alertas = toggle.checked;
+    
+    try {
+        await fetch('/api/perfil/actualizar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ correo, alertas })
+        });
+        localStorage.setItem('usuarioAlertas', alertas);
+    } catch(e) {}
+}
 
-    if (passNueva !== "") {
-        if (passActual === "") return mostrarToast("⚠️ Ingresa tu contraseña actual para cambiarla.");
+async function guardarCambiosModal(tipo) {
+    const correo = localStorage.getItem('usuarioCorreo');
+    let bodyData = { correo };
+    
+    if (tipo === 'perfil') {
+        const nuevoNombre = document.getElementById('perfil-nombre-input').value.trim();
+        if (nuevoNombre.length < 3 || nuevoNombre.length > 30) {
+            return mostrarToast("⚠️ Tu nombre debe tener entre 3 y 30 caracteres.");
+        }
+        bodyData.nombre = nuevoNombre;
+        bodyData.avatar = avatarSeleccionado;
+    } else if (tipo === 'pass') {
+        const passActual = document.getElementById('perfil-pass-actual').value;
+        const passNueva = document.getElementById('perfil-pass-nueva').value;
+        
+        if (passActual === "" || passNueva === "") return mostrarToast("⚠️ Completa ambas contraseñas.");
         const hasNum = /\d/.test(passNueva), hasMay = /[A-Z]/.test(passNueva), hasMin = /[a-z]/.test(passNueva), hasLen = passNueva.length >= 8;
         if (!(hasNum && hasMay && hasMin && hasLen)) {
             return mostrarToast("⚠️ La nueva clave requiere: 8+ carac., 1 Mayús, 1 Minús y 1 Núm.");
         }
+        bodyData.password_actual = passActual;
+        bodyData.password_nueva = passNueva;
     }
-
-    btnSave.disabled = true;
-    btnSave.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 inline text-white" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> GUARDANDO...`;
 
     try {
         const response = await fetch('/api/perfil/actualizar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                correo, nombre: nuevoNombre, avatar: avatarSeleccionado,
-                alertas: activarAlertas, password_actual: passActual || null, password_nueva: passNueva || null
-            })
+            body: JSON.stringify(bodyData)
         });
 
         const data = await response.json();
         if (response.ok) {
-            localStorage.setItem('usuarioNombre', nuevoNombre);
-            localStorage.setItem('usuarioAvatar', avatarSeleccionado);
-            localStorage.setItem('usuarioAlertas', activarAlertas);
-
-            // Actualización inmediata del Dashboard
-            const dashNombre = document.getElementById('nombre-dashboard');
-            const dashAvatar = document.getElementById('avatar-dashboard');
-            if (dashNombre) dashNombre.innerText = nuevoNombre;
-            if (dashAvatar) dashAvatar.innerText = avatarSeleccionado;
-
-            mostrarToast("✅ ¡Ajustes guardados con éxito! 🏆");
-
-            // Limpiar campos sensibles
-            document.getElementById('perfil-pass-actual').value = '';
-            document.getElementById('perfil-pass-nueva').value = '';
-
-            setTimeout(() => cambiarPantalla('vista-dashboard'), 800);
+            if (tipo === 'perfil') {
+                localStorage.setItem('usuarioNombre', bodyData.nombre);
+                localStorage.setItem('usuarioAvatar', bodyData.avatar);
+                
+                const dashNombre = document.getElementById('nombre-dashboard');
+                const dashAvatar = document.getElementById('avatar-dashboard');
+                if (dashNombre) dashNombre.innerText = bodyData.nombre;
+                if (dashAvatar) dashAvatar.innerText = bodyData.avatar;
+                
+                const dispNombre = document.getElementById('perfil-nombre-display');
+                const dispAva = document.getElementById('perfil-avatar-preview-display');
+                if(dispNombre) dispNombre.innerText = bodyData.nombre;
+                if(dispAva) dispAva.innerText = bodyData.avatar;
+                
+                cerrarModal('modal-editar-perfil');
+            } else if (tipo === 'pass') {
+                document.getElementById('perfil-pass-actual').value = '';
+                document.getElementById('perfil-pass-nueva').value = '';
+                cerrarModal('modal-cambiar-pass');
+            }
+            mostrarToast("✅ ¡Actualizado con éxito!");
         } else {
             const errorMsg = typeof traducirErrorAuth === 'function' ? traducirErrorAuth(data.detail) : data.detail;
             mostrarToast("⚠️ " + errorMsg);
         }
     } catch (e) {
         mostrarToast("❌ No se pudo conectar con el servidor.");
-    } finally {
-        btnSave.disabled = false;
-        btnSave.innerHTML = txtOriginal;
     }
 }
 
@@ -595,8 +585,10 @@ function mostrarToast(mensaje) {
 
     toast.innerHTML = `
         <div class="text-xl">${icono}</div>
-        <div class="font-semibold text-sm leading-tight">${textoLimpio}</div>
+        <div class="font-semibold text-sm leading-tight"></div>
     `;
+    // Usar textContent para prevenir XSS en contenido dinámico
+    toast.querySelector('.leading-tight').textContent = textoLimpio;
 
     contenedor.appendChild(toast);
 

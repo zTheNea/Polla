@@ -36,6 +36,7 @@ function cambiarModoAuth(modo) {
     } else {
         modoRegistro = false;
         passwordInput.value = '';
+        nombreInput.value = '';
         contenedorNombre.classList.add('max-h-0', 'opacity-0');
         contenedorNombre.classList.remove('max-h-24', 'opacity-100');
         nombreInput.required = false;
@@ -103,14 +104,14 @@ async function procesarAuth(e) {
 
     // .trim() elimina espacios en blanco agregados por error por el teclado del celular
     const correo = document.getElementById('correo-input').value.trim();
-    const password = document.getElementById('password-input').value.trim();
+    const password = document.getElementById('password-input').value;
     const nombre = document.getElementById('nombre-input').value.trim();
 
+    // Validación estricta solo para registro
     if (modoRegistro) {
         if (!document.getElementById('check-datos').checked) {
             return mostrarToast("⚠️ Debes aceptar los Términos y Políticas.");
         }
-
         if (nombre.length < 3 || nombre.length > 30) {
             return mostrarToast("⚠️ El nombre debe tener entre 3 y 30 caracteres.");
         }
@@ -123,49 +124,32 @@ async function procesarAuth(e) {
         if (!(hasNum && hasMay && hasMin && hasLen)) {
             return mostrarToast("⚠️ La contraseña no cumple todos los requisitos de seguridad.");
         }
+    }
 
-        const btnSubmit = document.getElementById('btn-submit');
-        const txtOriginal = btnSubmit.innerHTML;
-        btnSubmit.disabled = true;
-        btnSubmit.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-5 w-5 text-white inline-block" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Procesando...`;
+    const btnSubmit = document.getElementById('btn-submit');
+    const txtOriginal = btnSubmit.innerHTML;
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-5 w-5 text-white inline-block" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Procesando...`;
 
-        try {
-            const response = await fetch('/api/auth/registro', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nombre, correo, password })
-            });
-            const datos = await response.json();
+    try {
+        const url = modoRegistro ? '/api/auth/registro' : '/api/auth/login';
+        const payload = modoRegistro ? { nombre, correo, password } : { correo, password };
 
-            if (response.ok) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const datos = await response.json();
+
+        if (response.ok) {
+            if (modoRegistro) {
                 mostrarToast("✅ ¡Registro exitoso! Ya puedes iniciar sesión.");
                 cambiarModoAuth('login');
+                // Limpiamos los inputs
                 document.getElementById('password-input').value = '';
+                document.getElementById('nombre-input').value = '';
             } else {
-                mostrarToast("⚠️ Error: " + traducirErrorAuth(datos.detail));
-            }
-        } catch (error) {
-            console.error("Error:", error);
-            mostrarToast("❌ No se pudo conectar con el servidor.");
-        } finally {
-            btnSubmit.disabled = false;
-            btnSubmit.innerHTML = txtOriginal;
-        }
-    } else {
-        const btnSubmit = document.getElementById('btn-submit');
-        const txtOriginal = btnSubmit.innerHTML;
-        btnSubmit.disabled = true;
-        btnSubmit.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-5 w-5 text-white inline-block" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Procesando...`;
-
-        try {
-            const response = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ correo, password })
-            });
-            const datos = await response.json();
-
-            if (response.ok) {
                 localStorage.setItem('usuarioNombre', datos.nombre);
                 localStorage.setItem('usuarioCorreo', datos.correo);
                 localStorage.setItem('usuarioAvatar', datos.avatar || '👤');
@@ -177,16 +161,15 @@ async function procesarAuth(e) {
 
                 document.getElementById('password-input').value = '';
                 cambiarPantalla('vista-dashboard');
-            } else {
-                mostrarToast("⚠️ Error: " + traducirErrorAuth(datos.detail));
             }
-        } catch (error) {
-            console.error("Error:", error);
-            mostrarToast("❌ No se pudo conectar con el servidor.");
-        } finally {
-            btnSubmit.disabled = false;
-            btnSubmit.innerHTML = txtOriginal;
+        } else {
+            mostrarToast("⚠️ Error: " + traducirErrorAuth(datos.detail));
         }
+    } catch (error) {
+        mostrarToast("❌ No se pudo conectar con el servidor.");
+    } finally {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = txtOriginal;
     }
 }
 
@@ -240,6 +223,14 @@ function cerrarSesion() {
     localStorage.removeItem('usuarioAvatar');
     localStorage.removeItem('usuarioAlertas');
     localStorage.removeItem('authToken');
+    // Limpiar datos de grupo activo para evitar filtración entre sesiones
+    localStorage.removeItem('grupoActivoId');
+    localStorage.removeItem('grupoActivoLiga');
+    localStorage.removeItem('grupoActivoCodigo');
+    localStorage.removeItem('grupoActivoNombre');
+    localStorage.removeItem('grupoActivoCreador');
+    localStorage.removeItem('partidoActivoId');
+    localStorage.removeItem('tabFiltroActual');
 
     const correoInput = document.getElementById('correo-input');
     const passwordInput = document.getElementById('password-input');

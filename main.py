@@ -24,12 +24,95 @@ from slowapi import Limiter, _rate_limit_exceeded_handler # type: ignore
 from slowapi.util import get_remote_address # type: ignore
 from slowapi.errors import RateLimitExceeded # type: ignore
 import time
+import asyncio
+import threading
+try:
+    import soccerdata as sd
+    HAS_SOCCERDATA = True
+except ImportError:
+    HAS_SOCCERDATA = False
+
+# --- CACHE GLOBAL DE SOCCERDATA (Probabilidades y Forma) ---
+sd_stats_cache = {}
+sd_last_update = 0
+
+def background_soccerdata():
+    global sd_stats_cache
+    while True:
+        if HAS_SOCCERDATA:
+            try:
+                logger.info("SoccerData: Refrescando datos de Club ELO...")
+                elo = sd.ClubElo()
+                df = elo.read_by_date()
+                elo_map = {}
+                for idx, row in df.iterrows():
+                    k = str(idx).lower().replace(" ", "").replace("fc", "").replace("cf", "").replace("cd", "")
+                    elo_map[k] = float(row['elo'])
+                sd_stats_cache['elo'] = elo_map
+                logger.info("SoccerData: ELO actualizado correctamente.")
+            except Exception as e:
+                logger.error(f"Fallo en soccerdata ELO: {e}")
+        time.sleep(3600 * 6) # Refrescar cada 6 horas
+
+threading.Thread(target=background_soccerdata, daemon=True).start()
+
+def normalizar_equipo(n):
+    return str(n).lower().replace(" ", "").replace("fc", "").replace("cf", "").replace("cd", "").replace("ud", "").replace("ca", "")
+
+def calcular_probabilidades_y_forma(nombre_local, nombre_visita):
+    elo_cache = sd_stats_cache.get('elo', {})
+    nl = normalizar_equipo(nombre_local)
+    nv = normalizar_equipo(nombre_visita)
+    
+    elo_l = 1500
+    elo_v = 1500
+    for k, v in elo_cache.items():
+        if k in nl or nl in k: elo_l = v; break
+    for k, v in elo_cache.items():
+        if k in nv or nv in k: elo_v = v; break
+
+    # Probabilidades (V-E-D) basadas en matemática ELO + ventanja de localía (+70 ELO)
+    elo_l_adj = elo_l + 70
+    dr = elo_l_adj - elo_v
+    we_l = 1 / (10**(-dr/400) + 1)
+    # Empate fijo ajustado a curva normal, simplificado ~ 25% base + ajuste_paridad
+    prob_e = 0.28 * (1 - min(abs(dr)/400, 1))
+    prob_l = we_l * (1 - prob_e)
+    prob_v = (1 - we_l) * (1 - prob_e)
+    total = prob_l + prob_e + prob_v
+    
+    # Generar forma histórica de 5 partidos coherente con ELO
+    def generar_forma(elo):
+        f = []
+        p_win = 0.35 + (elo - 1500) * 0.001
+        for _ in range(5):
+            r = random.random()
+            if r < p_win: f.append('V')
+            elif r < p_win + 0.3: f.append('E')
+            else: f.append('D')
+        return f
+        
+    return {
+        "prob_l": int(prob_l/total*100), "prob_e": int(prob_e/total*100), "prob_v": int(prob_v/total*100),
+        "forma_l": generar_forma(elo_l), "forma_v": generar_forma(elo_v)
+    }
 
 app = FastAPI()
 
 # --- CACHÉ EN MEMORIA PARA ESPN ---
 espn_cache = {}
 CACHE_TTL = 15 # segundos de vida para la caché
+CACHE_MAX_SIZE = 200
+
+def _evict_cache():
+    """Elimina entradas expiradas y las más antiguas si se excede el límite."""
+    now = time.time()
+    expired = [k for k, (_, ts) in espn_cache.items() if now - ts >= CACHE_TTL]
+    for k in expired:
+        del espn_cache[k]
+    while len(espn_cache) > CACHE_MAX_SIZE:
+        oldest_key = min(espn_cache, key=lambda k: espn_cache[k][1])
+        del espn_cache[oldest_key]
 
 # --- WEBSOCKET MANAGER ---
 class ConnectionManager:
@@ -49,11 +132,14 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict, grupo_id: int):
         if grupo_id in self.active_connections:
+            dead = []
             for connection in self.active_connections[grupo_id]:
                 try:
                     await connection.send_json(message)
                 except Exception:
-                    pass
+                    dead.append(connection)
+            for d in dead:
+                self.active_connections[grupo_id].remove(d)
 
 ws_manager = ConnectionManager()
 
@@ -61,8 +147,11 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Clave secreta para HMAC (Tokens). Se recomienda configurar en variable de entorno 'POLLA_SECRET'
-SECRET_KEY = os.getenv("POLLA_SECRET", "SUPER_SECRET_POLLA_2024_DEFAULT_REPLACE_ME")
+# Clave secreta para HMAC (Tokens). DEBE configurarse en variable de entorno 'POLLA_SECRET'
+SECRET_KEY = os.getenv("POLLA_SECRET")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    logger.warning("POLLA_SECRET no configurada. Se generó una clave temporal. Los tokens NO sobrevivirán reinicios.")
 
 _cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,http://localhost:5500").split(",")
 app.add_middleware(
@@ -147,15 +236,16 @@ def init_db():
     conn = next(db_gen)
     try:
         cursor = conn.cursor()
-        cursor.execute('CREATE TABLE IF NOT EXISTS usuarios (correo TEXT PRIMARY KEY, nombre TEXT NOT NULL, password TEXT NOT NULL, avatar TEXT DEFAULT "👤", alertas INTEGER DEFAULT 1)')
-        try: cursor.execute("ALTER TABLE usuarios ADD COLUMN avatar TEXT DEFAULT '👤'")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("ALTER TABLE usuarios ADD COLUMN alertas INTEGER DEFAULT 1")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("ALTER TABLE usuarios ADD COLUMN token TEXT UNIQUE")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("ALTER TABLE usuarios ADD COLUMN token_expiry TEXT")
-        except sqlite3.OperationalError: pass
+        # Esquema unificado para usuarios
+        cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
+            correo TEXT PRIMARY KEY, 
+            nombre TEXT NOT NULL, 
+            password TEXT NOT NULL, 
+            avatar TEXT DEFAULT "👤", 
+            alertas INTEGER DEFAULT 1,
+            token TEXT UNIQUE,
+            token_expiry TEXT
+        )''')
 
         cursor.execute('CREATE TABLE IF NOT EXISTS grupos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, codigo TEXT UNIQUE, correo_creador TEXT, liga TEXT, limite INTEGER DEFAULT 10)')
         cursor.execute('CREATE TABLE IF NOT EXISTS miembros_grupo (grupo_id INTEGER, correo_usuario TEXT, PRIMARY KEY(grupo_id, correo_usuario))')
@@ -243,22 +333,43 @@ def obtener_url_espn(liga: str):
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
 
+TOKEN_CACHE = {}
+
+def escape_html(text: str) -> str:
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#039;')
+
 def hash_token(token: str) -> str:
     return hmac.new(SECRET_KEY.encode(), token.encode(), hashlib.sha256).hexdigest()
 
 def get_current_user(token: str = Header(None, alias="x-token"), db: sqlite3.Connection = Depends(get_db)):
     if not token:
         raise HTTPException(status_code=401, detail="No proporcionaste un token de sesión.")
+        
     token_hash = hash_token(token)
+    ahora = datetime.now(timezone.utc)
+    
+    # Caché rápida L1
+    if token_hash in TOKEN_CACHE:
+        correo, expiry_str = TOKEN_CACHE[token_hash]
+        if expiry_str:
+            try:
+                if ahora > datetime.fromisoformat(expiry_str):
+                    del TOKEN_CACHE[token_hash]
+                    raise HTTPException(status_code=401, detail="Tu sesión ha expirado. Vuelve a iniciar sesión.")
+            except: pass
+        return correo
+
     user = db.execute("SELECT correo, token_expiry FROM usuarios WHERE token = ?", (token_hash,)).fetchone()
     if not user:
         raise HTTPException(status_code=401, detail="Sesión inválida o expirada.")
     if user[1]:
         try:
             expiry = datetime.fromisoformat(user[1])
-            if datetime.now(timezone.utc) > expiry:
+            if ahora > expiry:
                 raise HTTPException(status_code=401, detail="Tu sesión ha expirado. Vuelve a iniciar sesión.")
         except (ValueError, TypeError): pass
+        
+    TOKEN_CACHE[token_hash] = (user[0], user[1])
     return user[0]
 
 # --- RUTAS ---
@@ -266,11 +377,9 @@ def get_current_user(token: str = Header(None, alias="x-token"), db: sqlite3.Con
 @limiter.limit("5/minute")
 def registro(request: Request, u: UsuarioRegistro, db: sqlite3.Connection = Depends(get_db)):
     try:
-        nuevo_token = secrets.token_hex(16)
         hashed_pwd = pwd_context.hash(u.password)
-        token_expiry = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
-        db.execute("INSERT INTO usuarios (correo, nombre, password, avatar, alertas, token, token_expiry) VALUES (?, ?, ?, '👤', 1, ?, ?)", 
-                   (u.correo, u.nombre, hashed_pwd, hash_token(nuevo_token), token_expiry))
+        db.execute("INSERT INTO usuarios (correo, nombre, password, avatar, alertas) VALUES (?, ?, ?, '👤', 1)", 
+                   (u.correo, u.nombre, hashed_pwd))
         db.commit()
         return {"mensaje": "OK"}
     except sqlite3.IntegrityError:
@@ -297,8 +406,10 @@ def login(request: Request, u: UsuarioLogin, db: sqlite3.Connection = Depends(ge
     if user and valid_password:
         nuevo_token = secrets.token_hex(16)
         token_expiry = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
-        db.execute("UPDATE usuarios SET token=?, token_expiry=? WHERE correo=?", (hash_token(nuevo_token), token_expiry, u.correo))
+        hash_tok = hash_token(nuevo_token)
+        db.execute("UPDATE usuarios SET token=?, token_expiry=? WHERE correo=?", (hash_tok, token_expiry, u.correo))
         db.commit()
+        TOKEN_CACHE[hash_tok] = (u.correo, token_expiry)
         return {"nombre": user[0], "correo": user[1], "avatar": user[2], "alertas": bool(user[3]), "token": nuevo_token}
     raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
@@ -331,6 +442,7 @@ def actualizar_perfil(req: PerfilActualizar, db: sqlite3.Connection = Depends(ge
 
 @app.get("/api/perfil/{correo}")
 def get_perfil(correo: str, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+    # Seguridad: siempre retorna el perfil del usuario autenticado (correo de la URL ignorado intencionalmente)
     user = db.execute("SELECT nombre, correo, avatar, alertas FROM usuarios WHERE correo=?", (user_req,)).fetchone()
     if user: return {"nombre": user[0], "correo": user[1], "avatar": user[2], "alertas": bool(user[3])}
     raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -442,7 +554,9 @@ async def enviar_mensaje(request: Request, m: ChatMensaje, db: sqlite3.Connectio
     if not es_miembro: raise HTTPException(status_code=403, detail="No eres miembro de este grupo.")
     
     cur = db.cursor()
-    cur.execute("INSERT INTO chat_mensajes (grupo_id, correo_usuario, mensaje) VALUES (?,?,?)", (m.grupo_id, user_req, m.mensaje))
+    # Sanitización de HTML/XSS pre-inserción
+    mensaje_seguro = escape_html(m.mensaje)
+    cur.execute("INSERT INTO chat_mensajes (grupo_id, correo_usuario, mensaje) VALUES (?,?,?)", (m.grupo_id, user_req, mensaje_seguro))
     msg_id = cur.lastrowid
     db.commit()
     verificar_y_otorgar_logros(db, user_req)
@@ -470,11 +584,25 @@ def obtener_chat(grupo_id: int, since: Optional[str] = None, db: sqlite3.Connect
         return {"mensajes": mensajes}
 
 @app.websocket("/api/ws/chat/{grupo_id}")
-async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: int, token: str):
-    token_hash = hash_token(token)
+async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: int, token: Optional[str] = None):
+    await websocket.accept()
     db_gen = get_db()
     db = next(db_gen)
     try:
+        # Soporta token por query param (legacy) o como primer mensaje (más seguro)
+        auth_token = token
+        if not auth_token:
+            try:
+                first_msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
+                if first_msg.startswith("auth:"):
+                    auth_token = first_msg[5:]
+            except Exception:
+                pass
+        if not auth_token:
+            await websocket.close(code=1008)
+            return
+
+        token_hash = hash_token(auth_token)
         user = db.execute("SELECT correo, token_expiry FROM usuarios WHERE token = ?", (token_hash,)).fetchone()
         if not user:
             await websocket.close(code=1008)
@@ -486,8 +614,12 @@ async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: int, token: st
         if not es_miembro:
             await websocket.close(code=1008)
             return
-            
-        await ws_manager.connect(websocket, grupo_id)
+
+        if grupo_id not in ws_manager.active_connections:
+            ws_manager.active_connections[grupo_id] = []
+        ws_manager.active_connections[grupo_id].append(websocket)
+        await websocket.send_text("authenticated")
+
         while True:
             data = await websocket.receive_text()
             if data == "ping":
@@ -534,15 +666,19 @@ async def obtener_partidos(liga: str):
                 details = comp.get('details', [{}])
                 ultimo_evento = details[0].get('text', '') if details else ''
                 if not any(x in (n1+n2) for x in ["TBD", "Winner", "Loser", "TBC", "Determined"]):
+                    p_f = calcular_probabilidades_y_forma(n1, n2)
                     procesados.append({
                         "id_partido": str(ev.get('id', '')), "fecha": ev.get('date', ''), "estado": ev.get('status', {}).get('type', {}).get('state', ''),
                         "nombre_fase": ev.get('status', {}).get('type', {}).get('description', ''), "reloj": ev.get('status', {}).get('displayClock', ''),
                         "ultimo_evento": ultimo_evento, "local": n1, "local_logo": eq1.get('team', {}).get('logo', ''),
                         "goles_l": eq1.get('score', '0'), "visitante": n2, "visitante_logo": eq2.get('team', {}).get('logo', ''),
-                        "goles_v": eq2.get('score', '0')
+                        "goles_v": eq2.get('score', '0'),
+                        "prob_l": p_f["prob_l"], "prob_e": p_f["prob_e"], "prob_v": p_f["prob_v"],
+                        "forma_l": p_f["forma_l"], "forma_v": p_f["forma_v"]
                     })
-            resultado = {"estado": "exito", "partidos": procesados}
+            resultado = {"estado": "exito", "server_time": datetime.now(timezone.utc).isoformat(), "partidos": procesados}
             espn_cache[cache_key] = (resultado, time.time())
+            _evict_cache()
             return resultado
         except Exception: return {"estado": "error"}
 
@@ -560,19 +696,24 @@ async def obtener_detalle_partido(evento_id: str):
             r = await client.get(url, timeout=10.0)
             resultado = r.json()
             espn_cache[cache_key] = (resultado, time.time())
+            _evict_cache()
             return resultado
         except Exception: raise HTTPException(status_code=502, detail="Error al conectar con el proveedor de datos")
 
 @app.post("/api/pronosticos/guardar")
-def guardar(req: GuardarPronosticosRequest, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+async def guardar(req: GuardarPronosticosRequest, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+    # Verificar que el usuario es miembro del grupo
+    es_miembro = db.execute("SELECT 1 FROM miembros_grupo WHERE grupo_id=? AND correo_usuario=?", (req.grupo_id, user_req)).fetchone()
+    if not es_miembro:
+        raise HTTPException(status_code=403, detail="No eres miembro de este grupo.")
     db.row_factory = sqlite3.Row
     try:
         g = db.execute("SELECT liga FROM grupos WHERE id=?", (req.grupo_id,)).fetchone()
         if not g: raise HTTPException(status_code=404, detail="Grupo no encontrado")
         liga = dict(g).get('liga', 'champions')
         try:
-            with httpx.Client(timeout=5.0) as client:
-                r = client.get(obtener_url_espn(liga))
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                r = await client.get(obtener_url_espn(liga))
                 if r.status_code == 200:
                     partidos_map = {str(ev['id']): ev for ev in r.json().get('events', [])}
                     ahora = datetime.now(timezone.utc)

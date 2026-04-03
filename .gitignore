@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+ENV/
+
+# Database
+polla.db
+polla.db-shm
+polla.db-wal
+test_polla.db
+
+# OS
+.DS_Store
+Thumbs.db

@@ -4,6 +4,7 @@
 
 let partidosGlobales = [];
 let _intervaloLive = null;
+let _intervaloDetalleLive = null; // Polling del detalle de partido en vivo
 
 // Cache de pronósticos para evitar re-fetching al abrir el detalle de un partido
 let misPronosticosCache = null;
@@ -43,7 +44,7 @@ async function sincronizarTiempo() {
         const latencia = (Date.now() - start) / 2;
         const serverDate = new Date(d.iso);
         _serverTimeOffset = serverDate.getTime() - (Date.now() - latencia);
-    } catch (e) { console.error("Error tiempo:", e); }
+    } catch (e) { }
 }
 
 function getNow() { return new Date(Date.now() + _serverTimeOffset); }
@@ -56,6 +57,13 @@ window.detenerPollingLive = function () {
     if (_intervaloLive) {
         clearInterval(_intervaloLive);
         _intervaloLive = null;
+    }
+};
+
+window.detenerPollingDetalle = function () {
+    if (_intervaloDetalleLive) {
+        clearInterval(_intervaloDetalleLive);
+        _intervaloDetalleLive = null;
     }
 };
 
@@ -203,7 +211,7 @@ async function crearNuevoGrupo() {
         } else {
             mostrarToast("⚠️ Error: " + traducirErrorAuth(datos.detail));
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 }
 
 async function unirseAGrupo() {
@@ -227,7 +235,7 @@ async function unirseAGrupo() {
             const err = await respuesta.json();
             mostrarToast("⚠️ Error: " + traducirErrorAuth(err.detail));
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 }
 
 async function cargarMisGrupos() {
@@ -323,7 +331,7 @@ async function cargarMisGrupos() {
             }
             contenedor.innerHTML = htmlGrupos;
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 }
 
 function compartirCodigoDesdeDashboard(codigo, event) {
@@ -365,7 +373,7 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
                 mostrarToast("⚠️ Error: " + err.detail);
             }
         } catch (e) {
-            console.error(e);
+            // Error capturado silenciosamente para la interfaz
         }
     } else {
         // Lógica para SALIR del grupo si eres solo un miembro
@@ -387,7 +395,7 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
                 mostrarToast("⚠️ Error: " + err.detail);
             }
         } catch (e) {
-            console.error(e);
+            // Error capturado silenciosamente para la interfaz
         }
     }
 }
@@ -457,41 +465,7 @@ function poblarListaAvatares() {
     lista.innerHTML = h;
 }
 
-function logicPredict() {
-    const inputs = document.querySelectorAll('.pronostico-input');
-    if (inputs.length === 0) {
-        return mostrarToast("💡 Abre los detalles de un partido para usar el autocompletado.");
-    }
 
-    let count = 0;
-    inputs.forEach(inp => {
-        if (!inp.value || inp.value === '') {
-            // El ID generado en verDetallesPartido usa '-l-' para local
-            const esLocal = inp.id.includes('-l-');
-            inp.value = esLocal ? 1 : 0;
-            count++;
-        }
-    });
-    if (count > 0) mostrarToast(`Se completaron ${count} campos con lógica (1-0) 📊`);
-    else mostrarToast("ℹ️ Todos los campos ya tienen un valor.");
-}
-
-function luckyPredict() {
-    const inputs = document.querySelectorAll('.pronostico-input');
-    if (inputs.length === 0) {
-        return mostrarToast("💡 Abre los detalles de un partido para usar el autocompletado.");
-    }
-
-    let count = 0;
-    inputs.forEach(inp => {
-        if (!inp.value || inp.value === '') {
-            inp.value = Math.floor(Math.random() * 4); // 0 a 3 goles es más realista
-            count++;
-        }
-    });
-    if (count > 0) mostrarToast(`¡Dados lanzados! ${count} campos completados 🎲`);
-    else mostrarToast("ℹ️ Todos los campos ya tienen un valor.");
-}
 
 async function compartirGrupo() {
     const codigo = localStorage.getItem('grupoActivoCodigo');
@@ -512,7 +486,7 @@ async function compartirGrupo() {
                 text: textoMensaje
             });
         } catch (error) {
-            console.log('El usuario canceló la acción o hubo un error al compartir:', error);
+            // Acción cancelada por el usuario o fallo de API nativa
         }
     } else {
         // Fallback: Si se abre desde una PC o navegador sin soporte, lo copiamos al portapapeles
@@ -524,7 +498,6 @@ async function compartirGrupo() {
                 alert('¡Enlace copiado al portapapeles!');
             }
         } catch (err) {
-            console.error('Error al copiar al portapapeles: ', err);
             if (typeof mostrarToast === 'function') mostrarToast('⚠️ No se pudo copiar el enlace.');
         }
     }
@@ -549,7 +522,7 @@ async function eliminarGrupoActual() {
             const err = await res.json();
             mostrarToast("⚠️ Error: " + err.detail);
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 }
 
 async function salirGrupoActual() {
@@ -571,7 +544,7 @@ async function salirGrupoActual() {
             const err = await res.json();
             mostrarToast("⚠️ Error: " + err.detail);
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 }
 
 async function cargarPartidos() {
@@ -625,6 +598,7 @@ async function cargarPartidos() {
                 const logos = [p.local_logo, p.visitante_logo].map(l => l || LOGO_FALLBACK);
                 const f = new Date(p.fecha);
                 const delay = (index * 0.05).toFixed(2);
+
                 return `
                 <div onclick="verDetallesPartido('${p.id_partido}')" class="tarjeta-partido cursor-pointer animar-entrada bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 text-center hover:border-primary-200 transition-colors h-full flex flex-col justify-between relative" style="animation-delay: ${delay}s">
                     <div>
@@ -647,6 +621,7 @@ async function cargarPartidos() {
                                 <span class="text-[10px] font-black truncate block px-1">${escHtml(p.visitante)}</span>
                             </div>
                         </div>
+
                     </div>
                     <div id="pred-resumen-${p.id_partido}" class="mt-4 text-[11px] font-bold text-gray-400 bg-gray-50 dark:bg-gray-700/50 py-2 rounded-xl">
                         ${p.estado === 'pre' ? 'Haz clic para ver detalles o pronosticar' : 'Ver detalles y estadísticas'}
@@ -749,17 +724,31 @@ async function cargarPartidos() {
                             const hudoCambioEstado = d.partidos.some((p, i) => p.estado !== (partidosGlobales[i]?.estado));
                             if (hudoCambioEstado) window.limpiarCachePronosticos();
 
-                            partidosGlobales = d.partidos; // Actualizar cache interno
-
-                            // 1. Actualizar vistas de lista (Grupo o Dashboard general si aplicara)
+                            // 1. Detectar Goles ('Golpe de realidad') y actualizar vistas (UI)
+                            let golDetectado = false;
+                            
                             if (['', '#vista-grupo', '#vista-dashboard'].includes(window.location.hash)) {
                                 d.partidos.filter(p => p.estado === 'in').forEach(p => {
+                                    const oldP = partidosGlobales.find(old => old.id_partido === p.id_partido);
+                                    if (oldP && (oldP.goles_l !== p.goles_l || oldP.goles_v !== p.goles_v)) {
+                                        // GOAL! Golpe de realidad alert
+                                        mostrarToast(`¡⚽ GOL en ${p.local} vs ${p.visitante}! Revisa el ranking dinámico 🔥`, 5000);
+                                        golDetectado = true;
+                                    }
+                                
                                     const scoreDash = document.getElementById(`score-dash-${p.id_partido}`);
                                     if (scoreDash) {
                                         scoreDash.innerText = `${p.goles_l} - ${p.goles_v}`;
                                     }
                                 });
                             }
+                            
+                            // Si hubo gol, actualizar el Ranking Dinámico (Refresco silencioso tabla)
+                            if (golDetectado && typeof actualizarRankingSilencioso === 'function') {
+                                actualizarRankingSilencioso();
+                            }
+
+                            partidosGlobales = d.partidos; // Actualizar cache interno
 
                             // 2. Actualizar la vista de detalles del partido si está abierta
                             if (window.location.hash === '#vista-partido') {
@@ -790,13 +779,12 @@ async function cargarPartidos() {
                             }
                         }
                     } catch (e) {
-                        console.error("Error en polling:", e);
+                        // Fallo en polling silencioso
                     }
-                }, 15000); // 15 segundos (Real-time optimizado v28)
+                }, 15000);
             }
-
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 }
 
 async function cargarMisPronosticosResumen() {
@@ -819,7 +807,7 @@ async function cargarMisPronosticosResumen() {
             }
         });
         actualizarBarraProgreso();
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 }
 
 function calcularTiempoAmigable(fechaPartido) {
@@ -872,7 +860,6 @@ function mostrarSkeletonGrupos(contenedorId) {
 
     let skeletons = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
 
-    // Generamos 3 esqueletos de grupos
     for (let i = 0; i < 3; i++) {
         skeletons += `
         <div class="bg-white dark:bg-gray-800 rounded-[2rem] p-6 shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col justify-between min-h-[180px] animate-pulse">
@@ -893,10 +880,8 @@ function mostrarSkeletonGrupos(contenedorId) {
 let _fetchIdDetalle = 0;
 async function verDetallesPartido(idPartido) {
     const currentId = ++_fetchIdDetalle;
-    // Guardar en memoria para persistencia al recargar página
     localStorage.setItem('partidoActivoId', idPartido);
 
-    // ✅ HUD de carga intermedio
     const dinMain = document.getElementById('info-partido-dinamica');
     if (dinMain) {
         dinMain.innerHTML = `
@@ -909,16 +894,26 @@ async function verDetallesPartido(idPartido) {
         `;
     }
 
-    // ✅ HIDRATACIÓN: Si no hay partidos en memoria (ej: recarga de página), los buscamos
     if (partidosGlobales.length === 0) {
         const liga = localStorage.getItem('grupoActivoLiga') || 'champions';
         try {
             const res = await fetch(`/api/partidos/${liga}`);
+            if (!res.ok) throw new Error("API Network Fallback");
             const d = await res.json();
-            if (res.ok && d.estado === 'exito') {
+            if (d.estado === 'exito') {
                 partidosGlobales = d.partidos;
+                if (d.server_time) {
+                    _serverTimeOffset = new Date(d.server_time).getTime() - Date.now();
+                }
+            } else {
+                throw new Error("Datos corruptos");
             }
-        } catch (e) { console.error("Error hidratando partido:", e); }
+        } catch (e) {
+            // Error hidratando silencioso
+            if (typeof mostrarToast === 'function') mostrarToast("❌ Error de comunicación con ESPN.");
+            cambiarPantalla('vista-dashboard');
+            return;
+        }
     }
 
     // ✅ RACE CONDITION PROTECTION: Si el usuario ya cambió de opinión y abrió otro partido, cancelamos este renderizado
@@ -995,6 +990,19 @@ async function verDetallesPartido(idPartido) {
                     <h3 class="font-black text-[11px] md:text-xs leading-tight break-words px-1">${escHtml(partido.visitante)}</h3>
                 </div>
             </div>
+            
+            ${partido.prob_l ? `
+            <div class="mt-4 w-full px-2" title="Pronósticos de Match Win Probabilities">
+                <div class="flex justify-between text-[9px] font-black text-gray-400 mb-1 px-1 uppercase tracking-widest">
+                    <span>${partido.prob_l}%</span> <span>Empate: ${partido.prob_e}%</span> <span>${partido.prob_v}%</span>
+                </div>
+                <div class="w-full flex h-2 rounded-full overflow-hidden opacity-90 shadow-inner">
+                    <div style="width: ${partido.prob_l}%" class="bg-primary-500"></div>
+                    <div style="width: ${partido.prob_e}%" class="bg-gray-300 dark:bg-gray-600"></div>
+                    <div style="width: ${partido.prob_v}%" class="bg-red-500"></div>
+                </div>
+            </div>
+            ` : ''}
             
             <div id="event-main-live" class="${partido.estado === 'in' && partido.ultimo_evento ? '' : 'hidden'} mt-4 bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-200 text-xs text-center py-2 px-3 rounded-xl border border-orange-100 dark:border-orange-800/50 shadow-inner font-medium">
                 ${partido.ultimo_evento ? `⚽ <strong>Última Jugada:</strong> ${escHtml(partido.ultimo_evento)}` : ''}
@@ -1101,12 +1109,14 @@ async function verDetallesPartido(idPartido) {
 
     cambiarPantalla('vista-partido');
 
-    // ✅ REFORZAR POLLING (Novedad v28)
-    // Si entramos a un partido vivo, forzamos que el interval de actualización esté corriendo
+    // ✅ REFORZAR POLLING (Novedad v28) - Con limpieza de interval anterior para evitar memory leak
+    if (_intervaloDetalleLive) clearInterval(_intervaloDetalleLive);
+    _intervaloDetalleLive = null;
     if (partido.estado === 'in' && typeof cargarPartidos === 'function') {
-        const tempInterval = setInterval(() => {
+        _intervaloDetalleLive = setInterval(() => {
             if (window.location.hash !== '#vista-partido') {
-                clearInterval(tempInterval);
+                clearInterval(_intervaloDetalleLive);
+                _intervaloDetalleLive = null;
                 return;
             }
             cargarExtrasPartido(idPartido, 'in', true);
@@ -1378,9 +1388,9 @@ async function cargarExtrasPartido(idPartido, estadoPartido, bloqueado) {
             htmlEstadisticas = `<p class="text-sm text-gray-400 text-center italic py-4">Aún no hay estadísticas recolectadas.</p>`;
         }
 
-        if (listaDOM && listaDOM.children.length < 3) {
+        if (listaDOM && !listaDOM.querySelector('[data-estadio]')) {
             listaDOM.insertAdjacentHTML('beforeend', `
-                <li class="flex justify-between pb-1 border-b border-gray-200 dark:border-gray-700">
+                <li data-estadio class="flex justify-between pb-1 border-b border-gray-200 dark:border-gray-700">
                     <span class="text-gray-500">🏟️ Estadio</span> 
                     <span class="font-bold text-gray-900 dark:text-white text-right">${estadio} ${ciudad ? '(' + ciudad + ')' : ''}</span>
                 </li>
@@ -1426,19 +1436,19 @@ async function cargarExtrasPartido(idPartido, estadoPartido, bloqueado) {
                     contPronosticos.innerHTML = `<p class="text-xs text-red-400 text-center italic py-4">No se pudo cargar la estadística.</p>`;
                 }
             } catch (ep) {
-                console.error("Error pronósticos distribución:", ep);
                 contPronosticos.innerHTML = `<p class="text-xs text-red-400 text-center italic py-4">Error cargando el gráfico.</p>`;
             }
         }
 
     } catch (e) {
-        console.error("Error cargando extras de ESPN:", e);
         const loader = document.getElementById('extra-loading');
         if (loader) loader.innerHTML = "No se pudieron cargar detalles adicionales.";
     }
 }
 
 async function guardarUnPronostico(idPartido, btn) {
+    // Debounce: prevenir doble envío si el usuario hace clic rápido
+    if (btn.disabled) return;
     const valL = document.getElementById(`input-det-l-${idPartido}`).value;
     const valV = document.getElementById(`input-det-v-${idPartido}`).value;
 
@@ -1608,3 +1618,5 @@ iniciarTemporizadores();
 
 // ✅ Inicialización v3.0
 sincronizarTiempo();
+// Re-sincronizar cada 5 minutos para compensar drift del reloj
+setInterval(sincronizarTiempo, 5 * 60 * 1000);

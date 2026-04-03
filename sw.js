@@ -1,4 +1,4 @@
-const CACHE_NAME = 'polla-v3.2';
+const CACHE_NAME = 'polla-v3.3';
 const ASSETS = [
     '/',
     '/index.html',
@@ -7,17 +7,18 @@ const ASSETS = [
     '/js/grupos.js',
     '/js/stats.js',
     '/js/chat.js',
-    '/js/ranking.js',
-    'https://cdn.tailwindcss.com',
-    'https://cdn.jsdelivr.net/npm/chart.js',
-    'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
+    '/js/ranking.js'
 ];
+
+// CDNs ya no se pre-cachean para evitar servir versiones obsoletas
+// Se cachearán dinámicamente con network-first
 
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => cache.addAll(ASSETS))
     );
+    self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
@@ -30,6 +31,7 @@ self.addEventListener('activate', event => {
             );
         })
     );
+    self.clients.claim();
 });
 
 self.addEventListener('fetch', event => {
@@ -38,15 +40,22 @@ self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
     const isInternal = url.origin === self.location.origin;
 
+    // NUNCA cachear llamadas a la API ni WebSockets
+    if (isInternal && url.pathname.startsWith('/api/')) return;
+    if (url.protocol === 'ws:' || url.protocol === 'wss:') return;
+
     event.respondWith(
         fetch(event.request)
             .then(response => {
-                // Solo cachar respuestas válidas (no errores de 3ros)
-                if(!response || response.status !== 200 || response.type !== 'basic' && response.type !== 'cors') {
+                // Solo cachear respuestas válidas
+                if(!response || response.status !== 200) {
                     return response;
                 }
-                const copy = response.clone();
-                caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+                // Solo cachear recursos internos y CDNs conocidos
+                if (response.type === 'basic' || response.type === 'cors') {
+                    const copy = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+                }
                 return response;
             })
             .catch(() => caches.match(event.request))

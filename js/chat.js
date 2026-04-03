@@ -5,6 +5,7 @@
 let _intervaloChat = null;
 let _ultimoChatFecha = null;
 let _wsChat = null;
+let _wsReconnectDelay = 2000; // Backoff exponencial inicial
 
 window.detenerPollingChat = function () {
     if (_intervaloChat) {
@@ -76,7 +77,7 @@ window.cargarChat = async function () {
         } else if (!esDelta && d.mensajes.length === 0) {
             container.innerHTML = '<p class="text-center text-xs text-gray-400 py-10 italic">¡Sé el primero en escribir!</p>';
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { }
 };
 
 window.enviarMensajeChat = async function (e) {
@@ -98,7 +99,7 @@ window.enviarMensajeChat = async function (e) {
             throw new Error("Error en servidor");
         }
     } catch (e) {
-        console.error(e);
+        // Notificación visual de error en lugar de log
         if (typeof mostrarToast === 'function') mostrarToast("⚠️ Error al enviar mensaje");
     }
 };
@@ -113,13 +114,21 @@ window.iniciarPollingChat = function () {
     if (!gid || !token) return;
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/api/ws/chat/${gid}?token=${token}`;
+    const wsUrl = `${wsProtocol}//${window.location.host}/api/ws/chat/${gid}`;
     
     _wsChat = new WebSocket(wsUrl);
+    
+    _wsChat.onopen = function () {
+        // Enviar token como primer mensaje (más seguro que query param)
+        _wsChat.send(`auth:${token}`);
+    };
 
     _wsChat.onmessage = function (event) {
         try {
-            if (event.data === "pong") return;
+            if (event.data === "pong" || event.data === "authenticated") {
+                if (event.data === "authenticated") _wsReconnectDelay = 2000; // Reset backoff on success
+                return;
+            }
             const data = JSON.parse(event.data);
             if (data.tipo === 'chat') {
                 const msj = data.mensaje;
@@ -132,16 +141,15 @@ window.iniciarPollingChat = function () {
                     const notifBadge = document.getElementById('notif-chat');
                     if (notifBadge) notifBadge.classList.remove('hidden');
                     if (typeof mostrarToast === 'function') {
-                        // Escapar HTML simple para la notificación
-                        const safeNombre = msj.nombre.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                        const safeMsj = msj.mensaje.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                        const safeNombre = typeof escHtml === 'function' ? escHtml(msj.nombre) : msj.nombre;
+                        const safeMsj = typeof escHtml === 'function' ? escHtml(msj.mensaje) : msj.mensaje;
                         mostrarToast(`💬 ${safeNombre}: ${safeMsj}`);
                     }
                 }
 
                 const esMio = msj.correo_usuario === miCorreo;
-                const escN = msj.nombre.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                const escM = msj.mensaje.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const escN = typeof escHtml === 'function' ? escHtml(msj.nombre) : msj.nombre;
+                const escM = typeof escHtml === 'function' ? escHtml(msj.mensaje) : msj.mensaje;
                 
                 const html = `
                     <div class="flex flex-col ${esMio ? 'items-end' : 'items-start'} mb-3 animar-entrada">
@@ -159,16 +167,16 @@ window.iniciarPollingChat = function () {
                 container.scrollTop = container.scrollHeight;
                 _ultimoChatFecha = msj.fecha;
             }
-        } catch (e) {
-            console.error("Error WS onmessage:", e);
-        }
+        } catch (e) { }
     };
 
     _wsChat.onclose = function () {
-        console.warn("WebSocket cerrado, reintentando reconexión en 5s...");
+        // Reintento automático silencioso
         _intervaloChat = setTimeout(() => {
             window.iniciarPollingChat();
-        }, 5000);
+        }, _wsReconnectDelay);
+        // Backoff exponencial: 2s, 4s, 8s, 16s, max 30s
+        _wsReconnectDelay = Math.min(_wsReconnectDelay * 2, 30000);
     };
 
     _intervaloChat = setInterval(() => {

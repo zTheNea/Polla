@@ -90,8 +90,14 @@ window.verTablaPosiciones = async function () {
 
         h += `</tbody></table></div></div></div>`;
         document.body.insertAdjacentHTML('beforeend', h);
-    } catch (e) {
-        console.error(e);
-        mostrarToast('❌ Error de conexión al cargar el ranking.');
-    }
+    } catch (e) { }
+};
+
+window.actualizarRankingSilencioso = async function() {
+    const elPrev = document.getElementById('m-pos');
+    if (!elPrev) return; // Sólo actualizar si la tabla ya está abierta
+    
+    // Rere-renderizamos toda la tabla manteniendo el modal
+    // Actualización silenciosa del ranking
+    await window.verTablaPosiciones();
 };

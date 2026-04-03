@@ -33,10 +33,13 @@ async function cargarGraficaEvolucion() {
                 return punto ? punto.puntos : null;
             });
 
-            // Colores aleatorios pero consistentes
-            const r = (index * 137) % 255;
-            const g = (index * 67) % 255;
-            const b = (index * 211) % 255;
+            // Paleta de colores con buen contraste entre sí
+            const COLORES_CHART = [
+                [59, 130, 246], [239, 68, 68], [16, 185, 129], [245, 158, 11],
+                [139, 92, 246], [236, 72, 153], [20, 184, 166], [249, 115, 22],
+                [99, 102, 241], [34, 197, 94], [168, 85, 247], [234, 179, 8]
+            ];
+            const [r, g, b] = COLORES_CHART[index % COLORES_CHART.length];
 
             return {
                 label: correo.split('@')[0],
@@ -71,7 +74,7 @@ async function cargarGraficaEvolucion() {
                 }
             }
         });
-    } catch (e) { console.error("Error cargando gráfica:", e); }
+    } catch (e) { }
 }
 
 // =============================================
@@ -92,10 +95,10 @@ async function cargarStatsPersonal() {
 
         // Tarjetas de métricas
         const metricas = [
-            { label: 'Puntos Totales', valor: d.puntos_totales, emoji: '⭐', color: 'from-yellow-400 to-amber-500' },
-            { label: 'Pronósticos', valor: d.pronosticos, emoji: '📝', color: 'from-blue-400 to-blue-600' },
-            { label: 'Grupos', valor: d.grupos, emoji: '👥', color: 'from-green-400 to-emerald-600' },
-            { label: 'Mensajes', valor: d.mensajes, emoji: '💬', color: 'from-purple-400 to-purple-600' },
+            { label: 'Puntos Totales', valor: d.puntos_totales, emoji: '⭐', color: 'from-amber-500 to-orange-600 dark:from-amber-700 dark:to-orange-900' },
+            { label: 'Pronósticos', valor: d.pronosticos, emoji: '📝', color: 'from-blue-500 to-blue-700 dark:from-blue-700 dark:to-blue-900' },
+            { label: 'Grupos', valor: d.grupos, emoji: '👥', color: 'from-emerald-500 to-emerald-700 dark:from-emerald-700 dark:to-emerald-900' },
+            { label: 'Mensajes', valor: d.mensajes, emoji: '💬', color: 'from-purple-500 to-purple-700 dark:from-purple-700 dark:to-purple-900' },
         ];
 
         let htmlMetricas = metricas.map(m => `
@@ -127,10 +130,10 @@ async function cargarStatsPersonal() {
                 <p class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">🏅 Logros Desbloqueados</p>
                 <div class="grid grid-cols-2 gap-3">
                     ${d.logros.map(l => `
-                        <div class="bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/20 dark:to-primary-800/20 rounded-xl p-3 border border-primary-200 dark:border-primary-800/50 text-center transform hover:scale-105 transition-transform">
+                        <div class="bg-primary-500/10 dark:bg-primary-500/20 rounded-xl p-3 border border-primary-200 dark:border-primary-500/30 text-center transform hover:scale-105 transition-transform">
                             <span class="text-2xl block mb-1">${l.emoji}</span>
-                            <p class="text-xs font-black text-gray-800 dark:text-white">${l.nombre}</p>
-                            <p class="text-[9px] text-gray-500 dark:text-gray-400 mt-0.5">${l.descripcion}</p>
+                            <p class="text-xs font-black text-primary-700 dark:text-primary-300">${l.nombre}</p>
+                            <p class="text-[9px] text-primary-600/70 dark:text-primary-400/70 mt-0.5">${l.descripcion}</p>
                         </div>
                     `).join('')}
                 </div>
@@ -171,7 +174,7 @@ async function cargarStatsPersonal() {
         cargarTodosLogros(correo);
 
     } catch (e) {
-        console.error('Error stats personal:', e);
+        // Error capturado silenciosamente para no interrumpir la UI
         cont.innerHTML = `<div class="text-center py-20"><p class="text-gray-400 font-bold">No se pudieron cargar las estadísticas</p></div>`;
     }
 }
@@ -183,13 +186,15 @@ async function cargarTodosLogros(correo) {
         const res = await fetch(`/api/logros/${correo}`);
         const d = await res.json();
         grid.innerHTML = d.todos.map(b => `
-            <div class="flex items-center gap-3 p-2.5 rounded-xl ${b.obtenido ? 'bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800/50' : 'bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-600/50 opacity-50'}">
+            <div class="flex items-center gap-3 p-3 rounded-xl transition-all ${b.obtenido 
+                ? 'bg-primary-500/10 dark:bg-primary-500/20 border border-primary-200 dark:border-primary-500/30' 
+                : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 opacity-60'}">
                 <span class="text-xl ${b.obtenido ? '' : 'grayscale opacity-40'}">${b.emoji}</span>
                 <div class="flex-1 min-w-0">
-                    <p class="text-xs font-black ${b.obtenido ? 'text-gray-800 dark:text-white' : 'text-gray-400'}">${b.nombre}</p>
-                    <p class="text-[9px] ${b.obtenido ? 'text-gray-500 dark:text-gray-400' : 'text-gray-400'} truncate">${b.descripcion}</p>
+                    <p class="text-xs font-black ${b.obtenido ? 'text-primary-700 dark:text-primary-300' : 'text-gray-500 dark:text-gray-400'}">${b.nombre}</p>
+                    <p class="text-[9px] ${b.obtenido ? 'text-primary-600/70 dark:text-primary-400/70' : 'text-gray-400 dark:text-gray-500'} truncate">${b.descripcion}</p>
                 </div>
-                ${b.obtenido ? '<span class="text-green-500 text-xs font-black shrink-0">✅</span>' : '<span class="text-gray-300 dark:text-gray-600 text-xs font-bold shrink-0">🔒</span>'}
+                ${b.obtenido ? '<span class="text-green-500 text-sm font-black shrink-0">✅</span>' : '<span class="text-gray-400 dark:text-gray-600 text-xs font-bold shrink-0">🔒</span>'}
             </div>
         `).join('');
     } catch (e) { grid.innerHTML = '<p class="text-xs text-gray-400 italic">Error</p>'; }
@@ -230,7 +235,6 @@ async function compartirStats() {
             }
         }, 'image/png');
     } catch (e) {
-        console.error('Error compartiendo:', e);
         mostrarToast('❌ Error al generar imagen');
     }
 }
@@ -332,7 +336,7 @@ window.cerrarOnboarding = function() {
 
 // Auto-start onboarding después de registro
 window.checkOnboarding = function() {
-    if (!localStorage.getItem('onboarding_completado') && localStorage.getItem('token')) {
+    if (!localStorage.getItem('onboarding_completado') && localStorage.getItem('authToken')) {
         setTimeout(iniciarOnboarding, 500);
     }
 };
