@@ -781,7 +781,7 @@ async function cargarPartidos() {
                     } catch (e) {
                         // Fallo en polling silencioso
                     }
-                }, 15000);
+                }, 60000);
             }
         }
     } catch (e) { }

@@ -166,6 +166,14 @@ window.iniciarPollingChat = function () {
                 container.insertAdjacentHTML('beforeend', html);
                 container.scrollTop = container.scrollHeight;
                 _ultimoChatFecha = msj.fecha;
+            } else if (data.tipo === 'goal') {
+                // Notificación de GOL detectado por el Sync Loop
+                if (typeof mostrarToast === 'function') {
+                    mostrarToast(`⚽ ¡GOL DETECTADO! Marcador actualizado en tiempo real.`, 5000);
+                }
+                // Refrescar vistas silenciosamente
+                if (typeof cargarPartidos === 'function') cargarPartidos();
+                if (typeof actualizarRankingSilencioso === 'function') actualizarRankingSilencioso();
             }
         } catch (e) { }
     };

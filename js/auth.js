@@ -169,7 +169,7 @@ async function procesarAuth(e) {
         mostrarToast("❌ No se pudo conectar con el servidor.");
     } finally {
         btnSubmit.disabled = false;
-        btnSubmit.innerHTML = txtOriginal;
+        btnSubmit.innerHTML = modoRegistro ? 'Regístrate' : 'Iniciar Sesión';
     }
 }
 

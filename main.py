@@ -104,6 +104,49 @@ espn_cache = {}
 CACHE_TTL = 15 # segundos de vida para la caché
 CACHE_MAX_SIZE = 200
 
+# --- CACHÉ EN MEMORIA PARA POSICIONES (RANKING PROCESADO) ---
+posiciones_cache = {}
+POS_CACHE_TTL = 30 # Segundos que vive el cálculo de la tabla
+
+# --- LIGAS ACTIVAS (Sincronización Inteligente) ---
+ACTIVE_LEAGUES = set()
+USER_CACHE = {} 
+USER_CACHE_TTL = 300 
+
+# Cerraduras para evitar "Thundering Herd" (múltiples pedidos a ESPN al mismo tiempo)
+fetch_locks: Dict[str, asyncio.Lock] = {}
+
+async def get_espn_data(url: str, cache_key: str, ttl: int = CACHE_TTL) -> Optional[dict]:
+    """Obtiene datos de ESPN manejando caché y bloqueos de concurrencia."""
+    now = time.time()
+    if cache_key in espn_cache:
+        data, ts = espn_cache[cache_key]
+        if now - ts < ttl:
+            return data
+
+    if url not in fetch_locks:
+        fetch_locks[url] = asyncio.Lock()
+
+    async with fetch_locks[url]:
+        # Doble verificación dentro del candado
+        if cache_key in espn_cache:
+            data, ts = espn_cache[cache_key]
+            if now - ts < ttl:
+                return data
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(f"FETCH: Pidiendo datos a ESPN: {url}")
+                r = await client.get(url, timeout=10.0)
+                if r.status_code == 200:
+                    datos = r.json()
+                    espn_cache[cache_key] = (datos, time.time())
+                    _evict_cache()
+                    return datos
+        except Exception as e:
+            logger.error(f"Error en fetch_espn para {url}: {e}")
+    return None
+
 def _evict_cache():
     """Elimina entradas expiradas y las más antiguas si se excede el límite."""
     now = time.time()
@@ -348,26 +391,24 @@ def get_current_user(token: str = Header(None, alias="x-token"), db: sqlite3.Con
     token_hash = hash_token(token)
     ahora = datetime.now(timezone.utc)
     
-    # Caché rápida L1
+    # Caché rápida L1 (Token -> Correo, Expiry)
     if token_hash in TOKEN_CACHE:
         correo, expiry_str = TOKEN_CACHE[token_hash]
-        if expiry_str:
-            try:
-                if ahora > datetime.fromisoformat(expiry_str):
-                    del TOKEN_CACHE[token_hash]
-                    raise HTTPException(status_code=401, detail="Tu sesión ha expirado. Vuelve a iniciar sesión.")
-            except: pass
-        return correo
+        try:
+            if ahora < datetime.fromisoformat(expiry_str):
+                return correo
+        except: pass
 
     user = db.execute("SELECT correo, token_expiry FROM usuarios WHERE token = ?", (token_hash,)).fetchone()
     if not user:
         raise HTTPException(status_code=401, detail="Sesión inválida o expirada.")
+    
     if user[1]:
         try:
             expiry = datetime.fromisoformat(user[1])
             if ahora > expiry:
                 raise HTTPException(status_code=401, detail="Tu sesión ha expirado. Vuelve a iniciar sesión.")
-        except (ValueError, TypeError): pass
+        except: pass
         
     TOKEN_CACHE[token_hash] = (user[0], user[1])
     return user[0]
@@ -438,13 +479,25 @@ def actualizar_perfil(req: PerfilActualizar, db: sqlite3.Connection = Depends(ge
     except Exception as e:
         logger.error(f"Error actualizando perfil: {e}")
         raise HTTPException(status_code=500, detail="Error interno al actualizar perfil")
+    
+    # Invalida caché al actualizar
+    if user_req in USER_CACHE: del USER_CACHE[user_req]
     return {"mensaje": "Perfil actualizado con éxito"}
 
 @app.get("/api/perfil/{correo}")
 def get_perfil(correo: str, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
-    # Seguridad: siempre retorna el perfil del usuario autenticado (correo de la URL ignorado intencionalmente)
+    # Seguridad: siempre retorna el perfil del usuario autenticado
+    now = time.time()
+    if user_req in USER_CACHE:
+        data, ts = USER_CACHE[user_req]
+        if now - ts < USER_CACHE_TTL:
+            return data
+
     user = db.execute("SELECT nombre, correo, avatar, alertas FROM usuarios WHERE correo=?", (user_req,)).fetchone()
-    if user: return {"nombre": user[0], "correo": user[1], "avatar": user[2], "alertas": bool(user[3])}
+    if user:
+        res = {"nombre": user[0], "correo": user[1], "avatar": user[2], "alertas": bool(user[3])}
+        USER_CACHE[user_req] = (res, now)
+        return res
     raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
 @app.post("/api/perfil/eliminar")
@@ -609,11 +662,13 @@ async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: int, token: Op
             return
         
         correo_usuario = user[0]
+        # Registrar liga como activa
         es_miembro = db.execute("SELECT 1 FROM miembros_grupo WHERE grupo_id=? AND correo_usuario=?", (grupo_id, correo_usuario)).fetchone()
-        
         if not es_miembro:
-            await websocket.close(code=1008)
-            return
+            await websocket.close(code=1008); return
+
+        liga_res = db.execute("SELECT liga FROM grupos WHERE id=?", (grupo_id,)).fetchone()
+        if liga_res: ACTIVE_LEAGUES.add(liga_res[0])
 
         if grupo_id not in ws_manager.active_connections:
             ws_manager.active_connections[grupo_id] = []
@@ -622,8 +677,7 @@ async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: int, token: Op
 
         while True:
             data = await websocket.receive_text()
-            if data == "ping":
-                await websocket.send_text("pong")
+            if data == "ping": await websocket.send_text("pong")
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, grupo_id)
     except Exception:
@@ -631,6 +685,61 @@ async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: int, token: Op
     finally:
         try: next(db_gen)
         except StopIteration: pass
+
+# --- BACKGROUND SYNC LOOP ---
+async def sync_loop():
+    """Tarea en segundo plano que actualiza ligas activas cada 60s o según sea necesario."""
+    logger.info("Iniciando Sync Loop para ligas activas...")
+    while True:
+        try:
+            leagues_to_sync = list(ACTIVE_LEAGUES)
+            if not leagues_to_sync:
+                await asyncio.sleep(60)
+                continue
+            
+            for liga in leagues_to_sync:
+                url = obtener_url_espn(liga)
+                cache_key = f"partidos_{liga}"
+                
+                # Obtener datos anteriores para comparar (Detección de goles)
+                old_data = None
+                if cache_key in espn_cache:
+                    old_data, _ = espn_cache[cache_key]
+                
+                new_data = await get_espn_data(url, cache_key, ttl=10) # Refresco más rápido si hay actividad
+                
+                if new_data and old_data:
+                    # Comparar eventos en vivo
+                    for ev in new_data.get('events', []):
+                        if ev.get('status', {}).get('type', {}).get('state') == 'in':
+                            old_ev = next((x for x in old_data.get('events', []) if x.get('id') == ev.get('id')), None)
+                            if old_ev:
+                                score_new = [c.get('score') for c in ev.get('competitions', [{}])[0].get('competitors', [])]
+                                score_old = [c.get('score') for c in old_ev.get('competitions', [{}])[0].get('competitors', [])]
+                                if score_new != score_old:
+                                    logger.info(f"¡GOL DETECTADO en liga {liga}! Notificando...")
+                                    # Notificar a todos los grupos de esta liga
+                                    # Nota: En una app real, mapearíamos liga -> grupo_ids para eficiencia
+                                    # Por ahora, enviamos a todos los grupos activos que coincidan en liga
+                                    # Para esto necesitamos saber la liga de cada grupo con conexiones activas
+                                    for gid in list(ws_manager.active_connections.keys()):
+                                        # Esto es un poco ineficiente (DB hit), pero solo ocurre en GOL
+                                        db_gen = get_db()
+                                        db = next(db_gen)
+                                        ginfo = db.execute("SELECT liga FROM grupos WHERE id=?", (gid,)).fetchone()
+                                        if ginfo and ginfo[0] == liga:
+                                            # Limpiar cache de posiciones para este grupo
+                                            if f"pos_{gid}" in posiciones_cache: del posiciones_cache[f"pos_{gid}"]
+                                            await ws_manager.broadcast({"tipo": "goal", "liga": liga, "partido_id": ev.get('id')}, gid)
+            
+            await asyncio.sleep(60)
+        except Exception as e:
+            logger.error(f"Error en sync_loop: {e}")
+            await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(sync_loop())
 
 @app.get("/api/utils/server-time")
 def get_server_time():
@@ -641,46 +750,42 @@ async def obtener_partidos(liga: str):
     url_dinamica = obtener_url_espn(liga)
     cache_key = f"partidos_{liga}"
     
-    if cache_key in espn_cache:
-        cached_data, timestamp = espn_cache[cache_key]
-        if time.time() - timestamp < CACHE_TTL:
-            return cached_data
-
-    async with httpx.AsyncClient() as client:
-        try:
-            r = await client.get(url_dinamica, timeout=8.0)
-            datos = r.json()
-            procesados = []
-            events = datos.get('events', [])
-            for ev in events:
-                if not isinstance(ev, dict): continue
-                st_name = ev.get('status', {}).get('type', {}).get('name', '').upper()
-                if any(x in st_name for x in ['POSTPONED', 'CANCELED', 'DELAYED']): continue
-                comp_list = ev.get('competitions', [])
-                if not comp_list: continue
-                comp = comp_list[0]
-                competitors = comp.get('competitors', [])
-                if len(competitors) < 2: continue
-                eq1, eq2 = competitors[0], competitors[1]
-                n1, n2 = eq1.get('team', {}).get('name', ''), eq2.get('team', {}).get('name', '')
-                details = comp.get('details', [{}])
-                ultimo_evento = details[0].get('text', '') if details else ''
-                if not any(x in (n1+n2) for x in ["TBD", "Winner", "Loser", "TBC", "Determined"]):
-                    p_f = calcular_probabilidades_y_forma(n1, n2)
-                    procesados.append({
-                        "id_partido": str(ev.get('id', '')), "fecha": ev.get('date', ''), "estado": ev.get('status', {}).get('type', {}).get('state', ''),
-                        "nombre_fase": ev.get('status', {}).get('type', {}).get('description', ''), "reloj": ev.get('status', {}).get('displayClock', ''),
-                        "ultimo_evento": ultimo_evento, "local": n1, "local_logo": eq1.get('team', {}).get('logo', ''),
-                        "goles_l": eq1.get('score', '0'), "visitante": n2, "visitante_logo": eq2.get('team', {}).get('logo', ''),
-                        "goles_v": eq2.get('score', '0'),
-                        "prob_l": p_f["prob_l"], "prob_e": p_f["prob_e"], "prob_v": p_f["prob_v"],
-                        "forma_l": p_f["forma_l"], "forma_v": p_f["forma_v"]
-                    })
-            resultado = {"estado": "exito", "server_time": datetime.now(timezone.utc).isoformat(), "partidos": procesados}
-            espn_cache[cache_key] = (resultado, time.time())
-            _evict_cache()
-            return resultado
-        except Exception: return {"estado": "error"}
+    datos = await get_espn_data(url_dinamica, cache_key)
+    if not datos:
+        return {"estado": "error", "mensaje": "No se pudo conectar con ESPN"}
+    
+    try:
+        procesados = []
+        events = datos.get('events', [])
+        for ev in events:
+            if not isinstance(ev, dict): continue
+            st_name = ev.get('status', {}).get('type', {}).get('name', '').upper()
+            if any(x in st_name for x in ['POSTPONED', 'CANCELED', 'DELAYED']): continue
+            comp_list = ev.get('competitions', [])
+            if not comp_list: continue
+            comp = comp_list[0]
+            competitors = comp.get('competitors', [])
+            if len(competitors) < 2: continue
+            eq1, eq2 = competitors[0], competitors[1]
+            n1, n2 = eq1.get('team', {}).get('name', ''), eq2.get('team', {}).get('name', '')
+            details = comp.get('details', [{}])
+            ultimo_evento = details[0].get('text', '') if details else ''
+            if not any(x in (n1+n2) for x in ["TBD", "Winner", "Loser", "TBC", "Determined"]):
+                p_f = calcular_probabilidades_y_forma(n1, n2)
+                procesados.append({
+                    "id_partido": str(ev.get('id', '')), "fecha": ev.get('date', ''), "estado": ev.get('status', {}).get('type', {}).get('state', ''),
+                    "nombre_fase": ev.get('status', {}).get('type', {}).get('description', ''), "reloj": ev.get('status', {}).get('displayClock', ''),
+                    "ultimo_evento": ultimo_evento, "local": n1, "local_logo": eq1.get('team', {}).get('logo', ''),
+                    "goles_l": eq1.get('score', '0'), "visitante": n2, "visitante_logo": eq2.get('team', {}).get('logo', ''),
+                    "goles_v": eq2.get('score', '0'),
+                    "prob_l": p_f["prob_l"], "prob_e": p_f["prob_e"], "prob_v": p_f["prob_v"],
+                    "forma_l": p_f["forma_l"], "forma_v": p_f["forma_v"]
+                })
+        resultado = {"estado": "exito", "server_time": datetime.now(timezone.utc).isoformat(), "partidos": procesados}
+        return resultado
+    except Exception as e:
+        logger.error(f"Error procesando partidos de {liga}: {e}")
+        return {"estado": "error"}
 
 @app.get("/api/partidos/detalle/{evento_id}")
 async def obtener_detalle_partido(evento_id: str):
@@ -726,11 +831,15 @@ async def guardar(req: GuardarPronosticosRequest, db: sqlite3.Connection = Depen
                 else: raise HTTPException(status_code=503, detail="Error de validación temporal.")
         except HTTPException: raise
         except Exception: raise HTTPException(status_code=503, detail="No se pudo validar la hora.")
-        for p in req.pronosticos:
-            db.execute('''INSERT INTO pronosticos (grupo_id, correo_usuario, id_partido, goles_local, goles_visitante)
+        # 3. Guardar pronósticos en LOTE (Batching)
+        batch_data = [
+            (req.grupo_id, user_req, p.id_partido, p.goles_local, p.goles_visitante)
+            for p in req.pronosticos
+        ]
+        db.executemany('''INSERT INTO pronosticos (grupo_id, correo_usuario, id_partido, goles_local, goles_visitante)
                             VALUES (?,?,?,?,?) ON CONFLICT(grupo_id, correo_usuario, id_partido) 
                             DO UPDATE SET goles_local=excluded.goles_local, goles_visitante=excluded.goles_visitante''',
-                         (req.grupo_id, user_req, p.id_partido, p.goles_local, p.goles_visitante))
+                         batch_data)
         db.commit()
         verificar_y_otorgar_logros(db, user_req)
         return {"mensaje": "Pronósticos guardados"}
@@ -762,10 +871,34 @@ def get_pronosticos_distribucion(grupo_id: int, id_partido: str, db: sqlite3.Con
 
 @app.get("/api/posiciones/{grupo_id}")
 async def obtener_posiciones(grupo_id: int, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
+    now = time.time()
+    cache_key = f"pos_{grupo_id}"
+    if cache_key in posiciones_cache:
+        resultado, ts = posiciones_cache[cache_key]
+        if now - ts < POS_CACHE_TTL:
+            return resultado
+
     db.row_factory = sqlite3.Row
     grupo_info = db.execute("SELECT liga FROM grupos WHERE id=?", (grupo_id,)).fetchone()
     liga = str(dict(grupo_info).get('liga', 'champions')) if grupo_info else 'champions'
     
+    # 1. Obtener datos de ESPN (Centralizado)
+    url_espn = obtener_url_espn(liga)
+    espn_data = await get_espn_data(url_espn, f"partidos_{liga}")
+    
+    reales: Dict[str, Tuple[int, int]] = {}
+    if espn_data:
+        events = espn_data.get('events', [])
+        for ev in events:
+            if not isinstance(ev, dict): continue
+            st = ev.get('status', {}).get('type', {}).get('state', '')
+            if st in ['in', 'post']:
+                comp = ev.get('competitions', [{}])[0]
+                c_comp = comp.get('competitors', [])
+                if len(c_comp) >= 2:
+                    reales[str(ev.get('id', ''))] = (int(c_comp[0].get('score', 0)), int(c_comp[1].get('score', 0)))
+    
+    # 2. Consultas a DB (Optimizables en Fase 2)
     miembros_res = db.execute("SELECT nombre, correo, avatar FROM usuarios u JOIN miembros_grupo mg ON u.correo = mg.correo_usuario WHERE mg.grupo_id=?", (grupo_id,)).fetchall()
     miembros = [dict(r) for r in miembros_res]
     
@@ -774,91 +907,51 @@ async def obtener_posiciones(grupo_id: int, db: sqlite3.Connection = Depends(get
     
     mapa_pronos: Dict[str, Dict[str, Tuple[int, int]]] = {}
     for p in pronos_db: 
-        c_u = str(p.get('correo_usuario', ''))
-        id_p = str(p.get('id_partido', ''))
-        gl = int(p.get('goles_local', 0))
-        gv = int(p.get('goles_visitante', 0))
-        if c_u not in mapa_pronos: mapa_pronos[c_u] = {}
-        mapa_pronos[c_u][id_p] = (gl, gv)
+        c_u, id_p = str(p['correo_usuario']), str(p['id_partido'])
+        mapa_pronos.setdefault(c_u, {})[id_p] = (int(p['goles_local']), int(p['goles_visitante']))
     
     frec_marcador: Dict[str, Dict[Tuple[int, int], int]] = {}
     for p in pronos_db: 
-        idp = str(p.get('id_partido', ''))
-        gl = int(p.get('goles_local', 0))
-        gv = int(p.get('goles_visitante', 0))
-        if idp not in frec_marcador: frec_marcador[idp] = {}
-        marc = (gl, gv)
-        frec_marcador[idp][marc] = frec_marcador[idp].get(marc, 0) + 1
+        idp, marc = str(p['id_partido']), (int(p['goles_local']), int(p['goles_visitante']))
+        frec_marcador.setdefault(idp, {})[marc] = frec_marcador.get(idp, {}).get(marc, 0) + 1
         
-    reales: Dict[str, Tuple[int, int]] = {}
-    async with httpx.AsyncClient() as client:
-        try:
-            r = await client.get(obtener_url_espn(liga))
-            events = r.json().get('events', [])
-            for ev in events:
-                if not isinstance(ev, dict): continue
-                st = ev.get('status', {}).get('type', {}).get('state', '')
-                if st in ['in', 'post']:
-                    comp = ev.get('competitions', [{}])[0]
-                    c_comp = comp.get('competitors', [])
-                    if len(c_comp) >= 2:
-                        reales[str(ev.get('id', ''))] = (int(c_comp[0].get('score', 0)), int(c_comp[1].get('score', 0)))
-        except Exception as e:
-            logger.warning(f"Error fetching ESPN data: {e}")
-    
+    # 3. Procesamiento
     tabla: List[UserStats] = []
     for m in miembros:
-        m_correo = str(m.get('correo', ''))
-        u_stats = UserStats(
-            nombre=str(m.get('nombre', '')),
-            correo=m_correo,
-            avatar=str(m.get('avatar', '👤'))
-        )
+        m_correo = str(m['correo'])
+        u_stats = UserStats(nombre=str(m['nombre']), correo=m_correo, avatar=str(m.get('avatar', '👤')))
         user_pronos = mapa_pronos.get(m_correo, {})
         for idp, (rl, rv) in reales.items():
             if idp in user_pronos:
                 pl, pv = user_pronos[idp]
                 if pl == rl and pv == rv:
                     if frec_marcador.get(idp, {}).get((pl, pv), 0) == 1:
-                        u_stats.mu += 1
-                        u_stats.puntos += 10
-                    else:
-                        u_stats.me += 1
-                        u_stats.puntos += 5
+                        u_stats.mu += 1; u_stats.puntos += 10
+                    else: u_stats.me += 1; u_stats.puntos += 5
                 else:
                     win_p = 1 if pl > pv else (-1 if pl < pv else 0)
                     win_r = 1 if rl > rv else (-1 if rl < rv else 0)
-                    if win_p == win_r:
-                        u_stats.ga += 1
-                        u_stats.puntos += 3
-                    elif pl == rl or pv == rv:
-                        u_stats.gg += 1
-                        u_stats.puntos += 1
-                    else:
-                        u_stats.pe += 1
-            else:
-                u_stats.pe += 1
+                    if win_p == win_r: u_stats.ga += 1; u_stats.puntos += 3
+                    elif pl == rl or pv == rv: u_stats.gg += 1; u_stats.puntos += 1
+                    else: u_stats.pe += 1
+            else: u_stats.pe += 1
         tabla.append(u_stats)
     
     tabla.sort(key=lambda x: (x.puntos, x.mu, x.me), reverse=True)
-    tabla_dicts = []
-    for t in tabla:
-        tabla_dicts.append({
-            "nombre": t.nombre, "correo": t.correo, "avatar": t.avatar,
-            "puntos": t.puntos, "mu": t.mu, "me": t.me,
-            "ga": t.ga, "gg": t.gg, "pe": t.pe
-        })
-    try:
-        for t in tabla: 
-            db.execute("INSERT OR REPLACE INTO puntos_historial (grupo_id, correo_usuario, puntos) VALUES (?,?,?)", (grupo_id, t.correo, t.puntos))
-            # Otorgar badge Leyenda si alcanza 50+ pts
-            if t.puntos >= 50: _otorgar(db, t.correo, "leyenda")
-            # Otorgar badge Perfeccionista si tiene MU > 0
-            if t.mu > 0: _otorgar(db, t.correo, "perfeccionista")
-        db.commit()
-    except Exception as e:
-        logger.error(f"Error updating points history: {e}")
-    return {"posiciones": tabla_dicts}
+    tabla_dicts = [{"nombre": t.nombre, "correo": t.correo, "avatar": t.avatar, "puntos": t.puntos, "mu": t.mu, "me": t.me, "ga": t.ga, "gg": t.gg, "pe": t.pe} for t in tabla]
+    
+    # 4. Actualizar DB (Batching) y Caché
+    batch_puntos = [(grupo_id, t.correo, t.puntos) for t in tabla]
+    db.executemany("INSERT OR REPLACE INTO puntos_historial (grupo_id, correo_usuario, puntos) VALUES (?,?,?)", batch_puntos)
+    
+    for t in tabla: 
+        if t.puntos >= 50: _otorgar(db, t.correo, "leyenda")
+        if t.mu > 0: _otorgar(db, t.correo, "perfeccionista")
+    db.commit()
+
+    resultado = {"posiciones": tabla_dicts}
+    posiciones_cache[cache_key] = (resultado, now)
+    return resultado
 
 @app.get("/api/posiciones/historial/{grupo_id}")
 def obtener_historial_puntos(grupo_id: int, db: sqlite3.Connection = Depends(get_db), user_req: str = Depends(get_current_user)):
