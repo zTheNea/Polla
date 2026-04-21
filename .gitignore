@@ -1,19 +1,51 @@
+# ==========================================
+# Polla Futbolera — .gitignore
+# ==========================================
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
 .pytest_cache/
+htmlcov/
+.coverage
+
+# Entornos virtuales
 .venv/
-env/
 venv/
+env/
 ENV/
 
-# Database
-polla.db
-polla.db-shm
-polla.db-wal
-test_polla.db
+# Base de datos SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Archivos de entorno y secretos
+.env
+.env.local
+.env.production
+
+# Archivos temporales y scratch
+scratch*.py
+*.log
+*.tmp
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ngrok
+ngrok.yml
+
+# Datos exportados (sensibles)
+usuarios_exportados*

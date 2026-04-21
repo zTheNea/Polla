@@ -69,14 +69,32 @@ window.verTablaPosiciones = async function () {
             const miCorreo = localStorage.getItem('usuarioCorreo');
             const esMismo = jugador.correo === miCorreo;
 
+            // Indicador de cambio de posición
+            let cambioHtml = '';
+            const cambio = jugador.cambio;
+            if (cambio === null || cambio === undefined) {
+                // Jugador nuevo sin historial previo
+                cambioHtml = `<span class="inline-flex items-center text-[9px] font-black text-sky-500" title="Nuevo">★</span>`;
+            } else if (cambio > 0) {
+                cambioHtml = `<span class="inline-flex items-center gap-0.5 text-[9px] font-black text-emerald-500" title="Subió ${cambio} posición${cambio > 1 ? 'es' : ''}">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clip-rule="evenodd"/></svg>
+                    ${cambio}</span>`;
+            } else if (cambio < 0) {
+                cambioHtml = `<span class="inline-flex items-center gap-0.5 text-[9px] font-black text-red-500" title="Bajó ${Math.abs(cambio)} posición${Math.abs(cambio) > 1 ? 'es' : ''}">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clip-rule="evenodd"/></svg>
+                    ${Math.abs(cambio)}</span>`;
+            } else {
+                cambioHtml = `<span class="inline-flex items-center text-[9px] font-black text-gray-400" title="Sin cambios">
+                    <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 10a.75.75 0 01.75-.75h10.5a.75.75 0 010 1.5H4.75A.75.75 0 014 10z" clip-rule="evenodd"/></svg></span>`;
+            }
+
             h += `<tr class="${esMismo ? 'bg-primary-50/50 dark:bg-primary-100/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'} transition">
             <td class="p-3 font-bold text-gray-400 text-sm">${corona}</td>
             <td class="p-3 text-left">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-1.5">
+                    <div class="w-4 flex items-center justify-center shrink-0">${cambioHtml}</div>
                     <span class="text-base leading-none">${jugador.avatar || '👤'}</span>
-                    <div class="flex flex-col">
-                        <span class="font-black text-gray-700 dark:text-gray-200 capitalize leading-none">${escHtml(jugador.nombre)}</span>
-                    </div>
+                    <span class="font-black text-gray-700 dark:text-gray-200 capitalize leading-none">${escHtml(jugador.nombre)}</span>
                 </div>
             </td>
             <td class="p-3 font-black text-sm text-yellow-600 bg-yellow-50/50 dark:bg-yellow-900/10">${jugador.puntos}</td>

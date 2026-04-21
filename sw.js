@@ -1,4 +1,4 @@
-const CACHE_NAME = 'polla-v3.3';
+const CACHE_NAME = 'polla-v3.4';
 const ASSETS = [
     '/',
     '/index.html',

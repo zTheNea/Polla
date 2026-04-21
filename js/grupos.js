@@ -11,22 +11,315 @@ let misPronosticosCache = null;
 let misPronosticosCacheGid = null;
 
 // --- MAPEO GLOBAL DE LIGAS (centralizado) ---
+// ⚠️  URLs verificadas directamente via TheSportsDB API (r2.thesportsdb.com)
 const LIGAS_MAP = {
-    'champions': { icono: '🏆 Champions', nombre: 'UEFA Champions League', color: 'bg-indigo-100 text-primary-800 dark:bg-indigo-900 dark:text-indigo-300' },
-    'libertadores': { icono: '🌎 Libertadores', nombre: 'Copa Libertadores', color: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
-    'betplay': { icono: '🇨🇴 Liga BetPlay', nombre: 'Liga BetPlay', color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-400' },
-    'premier': { icono: '🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League', nombre: 'Premier League', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' },
-    'laliga': { icono: '🇪🇸 La Liga', nombre: 'La Liga', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' },
-    'seriea': { icono: '🇮🇹 Serie A', nombre: 'Serie A', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
-    'bundesliga': { icono: '🇩🇪 Bundesliga', nombre: 'Bundesliga', color: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' },
-    'ligue1': { icono: '🇫🇷 Ligue 1', nombre: 'Ligue 1', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300' },
-    'argentina': { icono: '🇦🇷 Liga Argentina', nombre: 'Liga Argentina', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300' },
-    'brasileirao': { icono: '🇧🇷 Brasileirão', nombre: 'Brasileirão', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' },
-    'europa_league': { icono: '🌟 Europa League', nombre: 'Europa League', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
-    'copa_america': { icono: '🏆 Copa América', nombre: 'Copa América', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300' },
-    'mundial': { icono: '🌍 Copa del Mundo', nombre: 'Copa del Mundo', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-300' },
-    'eliminatorias': { icono: '⚽ Eliminatorias', nombre: 'Eliminatorias CONMEBOL', color: 'bg-lime-100 text-lime-700 dark:bg-lime-900 dark:text-lime-300' },
+    // ─── UEFA ──────────────────────────────────────────────────────────────
+    'champions': {
+        nombre: 'Champions League',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/facv1u1742998896.png',   // id:4480
+        color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300',
+        accent: '#1e3a8a'
+    },
+    'europa_league': {
+        nombre: 'Europa League',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/mlsr7d1718774547.png',   // id:4481
+        color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300',
+        accent: '#78350f'
+    },
+    // ─── Ligas Top 5 ───────────────────────────────────────────────────────
+    'premier': {
+        nombre: 'Premier League',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/gasy9d1737743125.png',   // id:4328
+        color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300',
+        accent: '#3b0764'
+    },
+    'laliga': {
+        nombre: 'La Liga',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/ja4it51687628717.png',   // id:4335
+        color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/60 dark:text-orange-300',
+        accent: '#7c2d12'
+    },
+    'seriea': {
+        nombre: 'Serie A',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/67q3q21679951383.png',   // id:4332
+        color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300',
+        accent: '#1e3a8a'
+    },
+    'bundesliga': {
+        nombre: 'Bundesliga',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/teqh1b1679952008.png',   // id:4331
+        color: 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300',
+        accent: '#7f1d1d'
+    },
+    'ligue1': {
+        nombre: 'Ligue 1',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/9f7z9d1742983155.png',   // id:4334
+        color: 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-300',
+        accent: '#0c4a6e'
+    },
+    // ─── CONMEBOL ──────────────────────────────────────────────────────────
+    'libertadores': {
+        nombre: 'Copa Libertadores',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/9shr931685425181.png',   // id:4501
+        color: 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300',
+        accent: '#14532d'
+    },
+    'copa_america': {
+        nombre: 'Copa América',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/n78hen1718080720.png',   // id:4499
+        color: 'bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-300',
+        accent: '#134e4a'
+    },
+    'argentina': {
+        nombre: 'Liga Argentina',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/rk9xhx1768238251.png',   // id:4406
+        color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/60 dark:text-cyan-300',
+        accent: '#164e63'
+    },
+    'brasileirao': {
+        nombre: 'Brasileirão',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/lywv7t1766787179.png',   // id:4351
+        color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300',
+        accent: '#14532d'
+    },
+    'betplay': {
+        nombre: 'Liga BetPlay',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/sdz1351580833297.png',   // id:4497
+        color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/60 dark:text-yellow-300',
+        accent: '#713f12'
+    },
+    // ─── FIFA ──────────────────────────────────────────────────────────────
+    'mundial': {
+        nombre: 'Copa del Mundo',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/yesbil1731546197.png',   // id:4503 FIFA Club WC (fallback)
+        color: 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300',
+        accent: '#881337'
+    },
+    'eliminatorias': {
+        nombre: 'Eliminatorias',
+        logo: 'https://r2.thesportsdb.com/images/media/league/badge/bivzlu1635869135.png',   // id:4502 UEFA Euros (internacional)
+        color: 'bg-lime-100 text-lime-800 dark:bg-lime-900/60 dark:text-lime-300',
+        accent: '#365314'
+    },
 };
+
+// ============================================================
+// CUSTOM LIGA PICKER — dropdown con logos oficiales
+// ============================================================
+
+// Orden de aparición en el picker
+const LIGAS_ORDEN = [
+    'champions', 'europa_league',
+    'premier', 'laliga', 'seriea', 'bundesliga', 'ligue1',
+    'libertadores', 'betplay', 'argentina', 'brasileirao',
+    'copa_america', 'eliminatorias', 'mundial'
+];
+
+async function sincronizarFechasLigas() {
+    try {
+        const respuesta = await fetch('/api/ligas/info');
+        const datos = await respuesta.json();
+        
+        if (datos.estado === 'exito' && datos.ligas) {
+            // Actualizar LIGAS_MAP con las fechas oficiales de ESPN
+            for (const [key, dates] of Object.entries(datos.ligas)) {
+                if (LIGAS_MAP[key] && dates.fecha_inicio && dates.fecha_fin) {
+                    LIGAS_MAP[key].fecha_inicio = dates.fecha_inicio;
+                    LIGAS_MAP[key].fecha_fin = dates.fecha_fin;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('No se pudieron sincronizar las fechas oficiales de ligas:', e);
+    }
+}
+// Ejecutar inmediatamente (asíncrono) para tener los datos tan pronto como el usuario abra el modal
+sincronizarFechasLigas();
+
+function initLigaPicker() {
+    const dropdown = document.getElementById('liga-picker-dropdown');
+    const input    = document.getElementById('liga-grupo-input');
+    if (!dropdown) return;
+
+    // Calcular fechas límite basadas en reglas de negocio
+    const hoy = new Date();
+    
+    // Regla 1: Aparecer cuando falten <= 30 días para su inicio
+    const limiteFuturo = new Date(hoy);
+    limiteFuturo.setDate(hoy.getDate() + 30);
+    
+    // Regla 2: Desaparecer 2 días después de haber finalizado
+    const limitePasado = new Date(hoy);
+    limitePasado.setDate(hoy.getDate() - 2);
+
+    let ligasAcitvas = 0;
+    
+    dropdown.innerHTML = LIGAS_ORDEN.map(key => {
+        const info = LIGAS_MAP[key];
+        if (!info) return '';
+
+        let mostrar = true;
+
+        // Validar rango sólo si ya recibimos la sincronización del servidor
+        if (info.fecha_inicio && info.fecha_fin) {
+            const fechaInicio = new Date(info.fecha_inicio);
+            const fechaFin    = new Date(info.fecha_fin);
+            fechaFin.setHours(23, 59, 59);
+
+            if (fechaInicio > limiteFuturo || fechaFin < limitePasado) {
+                mostrar = false;
+            }
+        }
+
+        if (!mostrar) return ''; // La liga no cumple las condiciones, se oculta
+
+        ligasAcitvas++;
+
+        return `
+        <button type="button"
+            onclick="selectLiga('${key}')"
+            data-liga-key="${key}"
+            class="liga-picker-item w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors text-left">
+            <img src="${info.logo}" loading="lazy" alt="${escHtml(info.nombre)}"
+                class="w-7 h-7 object-contain shrink-0"
+                onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22 fill=%22%23e5e7eb%22/%3E%3C/svg%3E'">
+            <span class="text-sm font-bold text-gray-800 dark:text-white">${escHtml(info.nombre)}</span>
+        </button>`;
+    }).join('');
+
+    if (ligasAcitvas === 0) {
+        dropdown.innerHTML = `
+        <div class="px-4 py-6 text-center text-gray-500 dark:text-gray-400 text-sm">
+            <svg class="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            No hay competiciones activas en este momento
+        </div>`;
+        
+        // Deshabilitar el botón y el input si no hay ligas
+        if (input) input.value = '';
+        const btn = document.getElementById('liga-picker-btn');
+        if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+        document.getElementById('liga-picker-label').textContent = "Sin torneos disponibles";
+        return;
+    }
+
+    // Reactivar botón si estaba bloqueado
+    const btn = document.getElementById('liga-picker-btn');
+    if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+
+    // Marcar la selección actual, ajustando si la selección anterior ya no está disponible
+    let currentVal = input ? input.value : '';
+    
+    // Si la liga actual ya no aparece en el DOM filtrado, seleccionar la primera disponible
+    const currentBtnObj = dropdown.querySelector(`[data-liga-key="${currentVal}"]`);
+    if (!currentBtnObj) {
+        const firstVisibleBtn = dropdown.querySelector('[data-liga-key]');
+        currentVal = firstVisibleBtn ? firstVisibleBtn.getAttribute('data-liga-key') : 'champions';
+    }
+
+    selectLiga(currentVal, false); // sin cerrar el dropdown aún
+}
+
+function toggleLigaPicker() {
+    const btn     = document.getElementById('liga-picker-btn');
+    const chevron = document.getElementById('liga-picker-chevron');
+    let dropdown  = document.getElementById('liga-picker-dropdown');
+    if (!btn || !dropdown) return;
+
+    const isOpen = !dropdown.classList.contains('hidden');
+    if (isOpen) {
+        dropdown.classList.add('hidden');
+        if (chevron) chevron.style.transform = '';
+        return;
+    }
+
+    // ── Primera vez: mover el dropdown al <body> para que ningún
+    //    ancestor con overflow lo recorte ──────────────────────────
+    if (dropdown.parentElement !== document.body) {
+        document.body.appendChild(dropdown);
+        dropdown = document.getElementById('liga-picker-dropdown');
+    }
+
+    initLigaPicker();
+
+    // ── Posicionar con fixed usando coordenadas del botón ─────────
+    const rect   = btn.getBoundingClientRect();
+    const viewH  = window.innerHeight;
+    const gap    = 6;
+    const dropW  = rect.width;
+    const spaceB = viewH - rect.bottom - gap;
+    const spaceA = rect.top - gap;
+
+    dropdown.style.position = 'fixed';
+    dropdown.style.left     = rect.left + 'px';
+    dropdown.style.width    = dropW + 'px';
+    dropdown.style.zIndex   = '9999';
+
+    // Elige abrir hacia abajo o hacia arriba según el espacio
+    if (spaceB >= 200 || spaceB >= spaceA) {
+        dropdown.style.top       = (rect.bottom + gap) + 'px';
+        dropdown.style.bottom    = '';
+        dropdown.style.maxHeight = Math.min(spaceB, 340) + 'px';
+    } else {
+        dropdown.style.top       = '';
+        dropdown.style.bottom    = (viewH - rect.top + gap) + 'px';
+        dropdown.style.maxHeight = Math.min(spaceA, 340) + 'px';
+    }
+
+    dropdown.classList.remove('hidden');
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+
+    // Scroll al ítem activo
+    requestAnimationFrame(() => {
+        const active = dropdown.querySelector('[class*="bg-primary"]');
+        if (active) active.scrollIntoView({ block: 'nearest' });
+    });
+}
+
+function selectLiga(key, close = true) {
+    const info   = LIGAS_MAP[key];
+    if (!info) return;
+
+    const input  = document.getElementById('liga-grupo-input');
+    if (input) input.value = key;
+
+    const logo   = document.getElementById('liga-picker-logo');
+    const label  = document.getElementById('liga-picker-label');
+    if (logo)  logo.src = info.logo;
+    if (label) label.textContent = info.nombre;
+
+    document.querySelectorAll('.liga-picker-item').forEach(btn => {
+        const isActive = btn.dataset.ligaKey === key;
+        btn.classList.toggle('bg-primary-50',         isActive);
+        btn.classList.toggle('dark:bg-primary-900/20', isActive);
+        btn.classList.toggle('text-primary',           isActive);
+    });
+
+    if (close) {
+        const dropdown = document.getElementById('liga-picker-dropdown');
+        const chevron  = document.getElementById('liga-picker-chevron');
+        if (dropdown) dropdown.classList.add('hidden');
+        if (chevron)  chevron.style.transform = '';
+    }
+}
+
+// Cerrar el picker al hacer clic fuera del wrapper o del dropdown
+document.addEventListener('click', (e) => {
+    const wrapper  = document.getElementById('liga-picker-wrapper');
+    const dropdown = document.getElementById('liga-picker-dropdown');
+    if (!dropdown || dropdown.classList.contains('hidden')) return;
+    if (wrapper && !wrapper.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.classList.add('hidden');
+        const chevron = document.getElementById('liga-picker-chevron');
+        if (chevron) chevron.style.transform = '';
+    }
+});
+
+
+
+
+// ============================================================
 
 window.limpiarCachePronosticos = function () {
     misPronosticosCache = null;
@@ -177,19 +470,27 @@ function agregarSwipeTabs() {
 }
 
 
+let _creandoGrupoEnProceso = false;
+
 async function crearNuevoGrupo() {
+    // Patrón de guarda: bloqueo doble clic
+    if (_creandoGrupoEnProceso) return;
+
     let nombreGrupo = document.getElementById('nombre-grupo-input').value.trim();
     nombreGrupo = nombreGrupo.replace(/\s+/g, ' '); // Colapsar múltiples espacios
     const ligaSeleccionada = document.getElementById('liga-grupo-input').value;
     const correoUsuario = localStorage.getItem('usuarioCorreo');
 
     if (!nombreGrupo) return mostrarToast("⚠️ Por favor, escribe un nombre para tu grupo.");
-    if (nombreGrupo.length < 3 || nombreGrupo.length > 30) return mostrarToast("⚠️ El nombre del grupo debe tener entre 3 y 30 caracteres.");
+    if (nombreGrupo.length < 3 || nombreGrupo.length > 20) return mostrarToast("⚠️ El nombre del grupo debe tener entre 3 y 20 caracteres.");
 
     const regexValido = /^[a-zA-Z0-9 áéíóúÁÉÍÓÚñÑ_\-]+$/;
     if (!regexValido.test(nombreGrupo)) return mostrarToast("⚠️ El nombre del grupo contiene caracteres no permitidos.");
 
     if (!correoUsuario) return;
+
+    // Activamos el candado para ignorar nuevos clics
+    _creandoGrupoEnProceso = true;
 
     try {
         const respuesta = await fetch('/api/grupos/crear', {
@@ -211,13 +512,23 @@ async function crearNuevoGrupo() {
         } else {
             mostrarToast("⚠️ Error: " + traducirErrorAuth(datos.detail));
         }
-    } catch (e) { }
+    } catch (e) {
+        mostrarToast("⚠️ Ocurrió un error al crear el grupo.");
+    } finally {
+        // Liberamos el candado sea cual sea el resultado
+        _creandoGrupoEnProceso = false;
+    }
 }
 
+let _unirseEnProceso = false;
 async function unirseAGrupo() {
+    if (_unirseEnProceso) return;
+
     const codigo = document.getElementById('codigo-unirse-input').value.trim().toUpperCase();
     const correoUsuario = localStorage.getItem('usuarioCorreo');
     if (!codigo) return mostrarToast("⚠️ Ingresa el código.");
+
+    _unirseEnProceso = true;
 
     try {
         const respuesta = await fetch('/api/grupos/unirse', {
@@ -235,7 +546,10 @@ async function unirseAGrupo() {
             const err = await respuesta.json();
             mostrarToast("⚠️ Error: " + traducirErrorAuth(err.detail));
         }
-    } catch (e) { }
+    } catch (e) {
+    } finally {
+        _unirseEnProceso = false;
+    }
 }
 
 async function cargarMisGrupos() {
@@ -292,9 +606,10 @@ async function cargarMisGrupos() {
                 }
 
                 datos.grupos.forEach(g => {
-                    const ligaInfo = LIGAS_MAP[g.liga] || { icono: '⚽ ' + (g.liga || 'Liga'), color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' };
-                    let colorTema = ligaInfo.color;
-                    let iconoTema = ligaInfo.icono;
+                    const ligaInfo = LIGAS_MAP[g.liga] || { nombre: g.liga || 'Liga', logo: null, color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' };
+                    const colorTema = ligaInfo.color;
+                    const logoSrc = ligaInfo.logo || '';
+                    const nombreLiga = ligaInfo.nombre;
 
                     const esCreador = correoUsuario === g.correo_creador;
                     const iconTitle = esCreador ? "Eliminar Grupo" : "Salir del Grupo";
@@ -302,16 +617,23 @@ async function cargarMisGrupos() {
                         ? `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>`
                         : `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>`;
 
+                    const logoBadge = logoSrc
+                        ? `<img src="${logoSrc}" loading="lazy" alt="${escHtml(nombreLiga)}" class="w-5 h-5 object-contain" onerror="this.style.display='none'">`
+                        : `<span class="text-base">⚽</span>`;
+
                     htmlGrupos += `
-                    <div class="bg-white dark:bg-gray-800 rounded-[2rem] p-6 shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col justify-between min-h-[180px] animar-entrada relative">
+                    <div class="bg-white dark:bg-gray-800 rounded-[2rem] p-6 shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col justify-between min-h-[180px] animar-entrada relative overflow-hidden">
                         
                         <button onclick="accionRapidaGrupo(${g.id}, '${escJs(g.correo_creador)}')" title="${iconTitle}" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 bg-gray-50 dark:bg-gray-700/50 hover:bg-red-50 dark:hover:bg-red-900/30 p-2.5 rounded-full transition z-10 shadow-sm">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${iconSvg}</svg>
                         </button>
 
                         <div>
-                            <div class="mb-2 pr-10 flex items-center gap-2">
-                                <span class="${colorTema} text-[10px] font-black uppercase px-2 py-1 rounded-md inline-block">${iconoTema}</span>
+                            <div class="mb-3 pr-10">
+                                <span class="${colorTema} inline-flex items-center gap-1.5 text-[10px] font-black uppercase px-2.5 py-1.5 rounded-lg shadow-sm">
+                                    ${logoBadge}
+                                    ${escHtml(nombreLiga)}
+                                </span>
                             </div>
                             <h4 class="text-xl font-black text-gray-800 dark:text-white leading-tight pr-8 truncate">${escHtml(g.nombre)}</h4>
                             <div class="flex items-center gap-2 mt-1">
@@ -349,7 +671,9 @@ function compartirCodigoDesdeDashboard(codigo, event) {
     }
 }
 
+let _accionRapidaEnProceso = false;
 async function accionRapidaGrupo(grupo_id, correo_creador) {
+    if (_accionRapidaEnProceso) return;
     const correo_usuario = localStorage.getItem('usuarioCorreo');
 
     if (correo_usuario === correo_creador) {
@@ -357,6 +681,7 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
         const ok = await confirmarAccion("⚠️ ¿Estás seguro de eliminar este grupo?\n\nSe borrarán TODOS los pronósticos de los miembros y la sala dejará de existir. Esta acción no se puede deshacer.");
         if (!ok) return;
 
+        _accionRapidaEnProceso = true;
         try {
             // SOLUCIÓN: Agregamos la petición fetchConAuth apuntando a /api/grupos/eliminar
             const res = await fetch('/api/grupos/eliminar', {
@@ -374,17 +699,19 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
             }
         } catch (e) {
             // Error capturado silenciosamente para la interfaz
+        } finally {
+            _accionRapidaEnProceso = false;
         }
     } else {
         // Lógica para SALIR del grupo si eres solo un miembro
         const ok = await confirmarAccion("⚠️ ¿Estás seguro de que quieres salir del grupo?\n\nPerderás todos los pronósticos y puntos que tenías en esta sala.");
         if (!ok) return;
 
+        _accionRapidaEnProceso = true;
         try {
             const res = await fetch('/api/grupos/salir', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
             });
 
             if (res.ok) {
@@ -442,7 +769,13 @@ function toggleChat() {
     const p = document.getElementById('panel-chat');
     p.classList.toggle('translate-x-full');
     if (!p.classList.contains('translate-x-full')) {
-        document.getElementById('notif-chat').classList.add('hidden');
+        // Resetear contador de no leídos
+        window._chatUnreadCount = 0;
+        const badge = document.getElementById('notif-chat');
+        if (badge) {
+            badge.classList.add('hidden');
+            badge.innerText = '';
+        }
         cargarChat();
         setTimeout(() => {
             const c = document.getElementById('chat-mensajes-container');
@@ -503,10 +836,13 @@ async function compartirGrupo() {
     }
 }
 
+let _eliminarGrupoEnProceso = false;
 async function eliminarGrupoActual() {
+    if (_eliminarGrupoEnProceso) return;
     const ok = await confirmarAccion("⚠️ ¿Estás seguro de eliminar este grupo?\n\nSe borrarán TODOS los pronósticos de los miembros y la sala dejará de existir. Esta acción no se puede deshacer.");
     if (!ok) return;
 
+    _eliminarGrupoEnProceso = true;
     const grupo_id = localStorage.getItem('grupoActivoId');
     try {
         const res = await fetch('/api/grupos/eliminar', {
@@ -522,10 +858,15 @@ async function eliminarGrupoActual() {
             const err = await res.json();
             mostrarToast("⚠️ Error: " + err.detail);
         }
-    } catch (e) { }
+    } catch (e) {
+    } finally {
+        _eliminarGrupoEnProceso = false;
+    }
 }
 
+let _salirGrupoEnProceso = false;
 async function salirGrupoActual() {
+    if (_salirGrupoEnProceso) return;
     const ok = await confirmarAccion("⚠️ ¿Estás seguro de que quieres salir del grupo?\n\nPerderás todos los pronósticos y puntos que tenías en esta sala.");
     if (!ok) return;
 

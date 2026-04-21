@@ -6,6 +6,7 @@ let _intervaloChat = null;
 let _ultimoChatFecha = null;
 let _wsChat = null;
 let _wsReconnectDelay = 2000; // Backoff exponencial inicial
+window._chatUnreadCount = 0;
 
 window.detenerPollingChat = function () {
     if (_intervaloChat) {
@@ -21,6 +22,12 @@ window.detenerPollingChat = function () {
 
 window.limpiarCacheChat = function () {
     _ultimoChatFecha = null;
+    window._chatUnreadCount = 0;
+    const badge = document.getElementById('notif-chat');
+    if (badge) {
+        badge.classList.add('hidden');
+        badge.innerText = '';
+    }
 }
 
 window.cargarChat = async function () {
@@ -41,8 +48,14 @@ window.cargarChat = async function () {
             if (esDelta && !estaAbierto) {
                 const nuevosDeOtros = d.mensajes.filter(m => m.correo_usuario !== miCorreo);
                 if (nuevosDeOtros.length > 0) {
+                    window._chatUnreadCount += nuevosDeOtros.length;
                     const notifBadge = document.getElementById('notif-chat');
-                    if (notifBadge) notifBadge.classList.remove('hidden');
+                    if (notifBadge) {
+                        notifBadge.innerText = window._chatUnreadCount > 9 ? '9+' : window._chatUnreadCount;
+                        notifBadge.classList.remove('hidden');
+                        notifBadge.classList.add('scale-125'); 
+                        setTimeout(() => notifBadge.classList.remove('scale-125'), 300);
+                    }
 
                     const ultimoMsj = nuevosDeOtros[nuevosDeOtros.length - 1];
                     mostrarToast(`💬 ${escHtml(ultimoMsj.nombre)}: ${escHtml(ultimoMsj.mensaje)}`);
@@ -80,12 +93,16 @@ window.cargarChat = async function () {
     } catch (e) { }
 };
 
+let _enviandoMensaje = false;
 window.enviarMensajeChat = async function (e) {
     if (e) e.preventDefault();
+    if (_enviandoMensaje) return;
+
     const input = document.getElementById('chat-input');
     const msj = input.value.trim();
     if (!msj) return;
 
+    _enviandoMensaje = true;
     const gid = localStorage.getItem('grupoActivoId');
     input.value = '';
 
@@ -101,6 +118,8 @@ window.enviarMensajeChat = async function (e) {
     } catch (e) {
         // Notificación visual de error en lugar de log
         if (typeof mostrarToast === 'function') mostrarToast("⚠️ Error al enviar mensaje");
+    } finally {
+        _enviandoMensaje = false;
     }
 };
 
@@ -138,12 +157,23 @@ window.iniciarPollingChat = function () {
                 const estaAbierto = panel && !panel.classList.contains('translate-x-full');
 
                 if (msj.correo_usuario !== miCorreo && !estaAbierto) {
+                    window._chatUnreadCount++;
                     const notifBadge = document.getElementById('notif-chat');
-                    if (notifBadge) notifBadge.classList.remove('hidden');
+                    if (notifBadge) {
+                        notifBadge.innerText = window._chatUnreadCount > 9 ? '9+' : window._chatUnreadCount;
+                        notifBadge.classList.remove('hidden');
+                        notifBadge.classList.add('scale-125'); 
+                        setTimeout(() => notifBadge.classList.remove('scale-125'), 300);
+                    }
+                    
+                    const safeNombre = typeof escHtml === 'function' ? escHtml(msj.nombre) : msj.nombre;
+                    const safeMsj = typeof escHtml === 'function' ? escHtml(msj.mensaje) : msj.mensaje;
+                    
                     if (typeof mostrarToast === 'function') {
-                        const safeNombre = typeof escHtml === 'function' ? escHtml(msj.nombre) : msj.nombre;
-                        const safeMsj = typeof escHtml === 'function' ? escHtml(msj.mensaje) : msj.mensaje;
                         mostrarToast(`💬 ${safeNombre}: ${safeMsj}`);
+                    }
+                    if (typeof lanzarNotificacionSistema === 'function') {
+                        lanzarNotificacionSistema(`💬 ${safeNombre} (Polla Futbolera)`, safeMsj);
                     }
                 }
 
@@ -170,6 +200,9 @@ window.iniciarPollingChat = function () {
                 // Notificación de GOL detectado por el Sync Loop
                 if (typeof mostrarToast === 'function') {
                     mostrarToast(`⚽ ¡GOL DETECTADO! Marcador actualizado en tiempo real.`, 5000);
+                }
+                if (typeof lanzarNotificacionSistema === 'function') {
+                    lanzarNotificacionSistema("⚽ ¡GOL DEL PARTIDO!", "¡Se ha detectado un nuevo gol! Abre la app para ver cómo quedó la tabla de posiciones.");
                 }
                 // Refrescar vistas silenciosamente
                 if (typeof cargarPartidos === 'function') cargarPartidos();

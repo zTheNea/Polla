@@ -99,8 +99,10 @@ function togglePasswordVisibility() {
     }
 }
 
+let _authEnProceso = false;
 async function procesarAuth(e) {
     e.preventDefault();
+    if (_authEnProceso) return;
 
     // .trim() elimina espacios en blanco agregados por error por el teclado del celular
     const correo = document.getElementById('correo-input').value.trim();
@@ -112,8 +114,8 @@ async function procesarAuth(e) {
         if (!document.getElementById('check-datos').checked) {
             return mostrarToast("⚠️ Debes aceptar los Términos y Políticas.");
         }
-        if (nombre.length < 3 || nombre.length > 30) {
-            return mostrarToast("⚠️ El nombre debe tener entre 3 y 30 caracteres.");
+        if (nombre.length < 3 || nombre.length > 20) {
+            return mostrarToast("⚠️ El nombre debe tener entre 3 y 20 caracteres.");
         }
 
         const hasNum = /\d/.test(password);
@@ -126,6 +128,7 @@ async function procesarAuth(e) {
         }
     }
 
+    _authEnProceso = true;
     const btnSubmit = document.getElementById('btn-submit');
     const txtOriginal = btnSubmit.innerHTML;
     btnSubmit.disabled = true;
@@ -168,6 +171,7 @@ async function procesarAuth(e) {
     } catch (error) {
         mostrarToast("❌ No se pudo conectar con el servidor.");
     } finally {
+        _authEnProceso = false;
         btnSubmit.disabled = false;
         btnSubmit.innerHTML = modoRegistro ? 'Regístrate' : 'Iniciar Sesión';
     }

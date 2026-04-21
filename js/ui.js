@@ -159,6 +159,11 @@ function abrirModal(id) {
         m.classList.remove('opacity-0');
         m.querySelector('.modal-content').classList.remove('scale-95');
     }, 10);
+    // Inicializar el picker de liga al abrir el modal de creación de grupo
+    if (id === 'modal-crear' && typeof selectLiga === 'function') {
+        const currentVal = document.getElementById('liga-grupo-input')?.value || 'champions';
+        selectLiga(currentVal, false);
+    }
 }
 
 function cerrarModal(id) {
@@ -392,7 +397,9 @@ function toggleVisibilidadPassPerfil(inputId, iconId) {
     }
 }
 
+let _guardandoNotificaciones = false;
 async function verificarToggleNotificaciones() {
+    if (_guardandoNotificaciones) return;
     const toggle = document.getElementById('check-alertas');
     if(toggle && window.verificarPermisoNotificaciones) {
         window.verificarPermisoNotificaciones(toggle.checked);
@@ -402,6 +409,7 @@ async function verificarToggleNotificaciones() {
     const correo = localStorage.getItem('usuarioCorreo');
     const alertas = toggle.checked;
     
+    _guardandoNotificaciones = true;
     try {
         await fetch('/api/perfil/actualizar', {
             method: 'POST',
@@ -409,17 +417,22 @@ async function verificarToggleNotificaciones() {
             body: JSON.stringify({ correo, alertas })
         });
         localStorage.setItem('usuarioAlertas', alertas);
-    } catch(e) {}
+    } catch(e) {
+    } finally {
+        _guardandoNotificaciones = false;
+    }
 }
 
+let _guardandoCambiosModal = false;
 async function guardarCambiosModal(tipo) {
+    if (_guardandoCambiosModal) return;
     const correo = localStorage.getItem('usuarioCorreo');
     let bodyData = { correo };
     
     if (tipo === 'perfil') {
         const nuevoNombre = document.getElementById('perfil-nombre-input').value.trim();
-        if (nuevoNombre.length < 3 || nuevoNombre.length > 30) {
-            return mostrarToast("⚠️ Tu nombre debe tener entre 3 y 30 caracteres.");
+        if (nuevoNombre.length < 3 || nuevoNombre.length > 20) {
+            return mostrarToast("⚠️ Tu nombre debe tener entre 3 y 20 caracteres.");
         }
         bodyData.nombre = nuevoNombre;
         bodyData.avatar = avatarSeleccionado;
@@ -436,6 +449,7 @@ async function guardarCambiosModal(tipo) {
         bodyData.password_nueva = passNueva;
     }
 
+    _guardandoCambiosModal = true;
     try {
         const response = await fetch('/api/perfil/actualizar', {
             method: 'POST',
@@ -472,6 +486,8 @@ async function guardarCambiosModal(tipo) {
         }
     } catch (e) {
         mostrarToast("❌ No se pudo conectar con el servidor.");
+    } finally {
+        _guardandoCambiosModal = false;
     }
 }
 
@@ -615,6 +631,24 @@ function mostrarToast(mensaje) {
     }, 4000); // 4 segundos para mejor lectura
 }
 
+window.lanzarNotificacionSistema = async function(titulo, cuerpo) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    if ('serviceWorker' in navigator) {
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            return reg.showNotification(titulo, {
+                body: cuerpo,
+                icon: "/js/logo-social.png",
+                vibrate: [200, 100, 200]
+            });
+        } catch(e) {}
+    }
+    
+    // Fallback nativo
+    new Notification(titulo, { body: cuerpo, icon: "/js/logo-social.png" });
+};
+
 window.verificarPermisoNotificaciones = async function (activado) {
     if (!activado) return;
 
@@ -625,18 +659,12 @@ window.verificarPermisoNotificaciones = async function (activado) {
 
     if (Notification.permission === "granted") {
         mostrarToast("✅ Las notificaciones ya están activadas.");
-        new Notification("Polla Futbolera", {
-            body: "¡Las alertas están activas! Te avisaremos antes de cada partido. ⚽",
-            icon: "/js/logo-social.png"
-        });
+        window.lanzarNotificacionSistema("Polla Futbolera", "¡Las alertas están activas! Te avisaremos ante cualquier novedad. ⚽");
     } else if (Notification.permission !== "denied") {
         const permiso = await Notification.requestPermission();
         if (permiso === "granted") {
             mostrarToast("✅ ¡Permiso concedido!");
-            new Notification("Polla Futbolera", {
-                body: "¡Bienvenido a las alertas en vivo! 🔔",
-                icon: "/js/logo-social.png"
-            });
+            window.lanzarNotificacionSistema("Polla Futbolera", "¡Bienvenido a las alertas en vivo! 🔔");
         } else {
             mostrarToast("⚠️ No podremos enviarte alertas sin tu permiso.");
         }

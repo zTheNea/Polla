@@ -207,7 +207,7 @@ app.add_middleware(
 
 # --- MODELOS DE DATOS ---
 class UsuarioRegistro(BaseModel):
-    nombre: str = Field(..., min_length=3, max_length=30)
+    nombre: str = Field(..., min_length=3, max_length=20)
     correo: EmailStr
     password: str = Field(..., max_length=72)
 
@@ -217,9 +217,9 @@ class UsuarioLogin(BaseModel):
 
 class PerfilActualizar(BaseModel):
     correo: EmailStr
-    nombre: Optional[str] = Field(None, min_length=3, max_length=30)
-    avatar: str
-    alertas: bool
+    nombre: Optional[str] = Field(None, min_length=3, max_length=20)
+    avatar: Optional[str] = None
+    alertas: Optional[bool] = None
     password_actual: Optional[str] = Field(None, max_length=72)
     password_nueva: Optional[str] = Field(None, max_length=72)
 
@@ -227,7 +227,7 @@ class CuentaEliminar(BaseModel):
     correo: EmailStr
 
 class GrupoCrear(BaseModel):
-    nombre: str = Field(..., min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9 áéíóúÁÉÍÓÚñÑ_\-]+$")
+    nombre: str = Field(..., min_length=3, max_length=20, pattern=r"^[a-zA-Z0-9 áéíóúÁÉÍÓÚñÑ_\-]+$")
     limite: int
     liga: str
 
@@ -324,7 +324,7 @@ LIGAS_ESPN = {
     "europa_league": "uefa.europa",
     "copa_america": "conmebol.america",
     "mundial": "fifa.world",
-    "eliminatorias": "conmebol.worldqualifier",
+    "eliminatorias": "fifa.worldq.conmebol",
 }
 
 BADGES = {
@@ -469,11 +469,11 @@ def actualizar_perfil(req: PerfilActualizar, db: sqlite3.Connection = Depends(ge
             if not valid_password:
                 raise HTTPException(status_code=400, detail="La contraseña actual es incorrecta")
             hashed_nueva = pwd_context.hash(req.password_nueva)
-            if req.nombre: cur.execute("UPDATE usuarios SET nombre=?, avatar=?, alertas=?, password=? WHERE correo=?", (req.nombre, req.avatar, int(req.alertas), hashed_nueva, user_req))
-            else: cur.execute("UPDATE usuarios SET avatar=?, alertas=?, password=? WHERE correo=?", (req.avatar, int(req.alertas), hashed_nueva, user_req))
+            if req.nombre is not None: cur.execute("UPDATE usuarios SET nombre=?, avatar=?, alertas=?, password=? WHERE correo=?", (req.nombre, req.avatar or '👤', int(req.alertas) if req.alertas is not None else 1, hashed_nueva, user_req))
+            else: cur.execute("UPDATE usuarios SET avatar=?, alertas=?, password=? WHERE correo=?", (req.avatar or '👤', int(req.alertas) if req.alertas is not None else 1, hashed_nueva, user_req))
         else:
-            if req.nombre: cur.execute("UPDATE usuarios SET nombre=?, avatar=?, alertas=? WHERE correo=?", (req.nombre, req.avatar, int(req.alertas), user_req))
-            else: cur.execute("UPDATE usuarios SET avatar=?, alertas=? WHERE correo=?", (req.avatar, int(req.alertas), user_req))
+            if req.nombre is not None: cur.execute("UPDATE usuarios SET nombre=?, avatar=?, alertas=? WHERE correo=?", (req.nombre, req.avatar or '👤', int(req.alertas) if req.alertas is not None else 1, user_req))
+            else: cur.execute("UPDATE usuarios SET avatar=?, alertas=? WHERE correo=?", (req.avatar or '👤', int(req.alertas) if req.alertas is not None else 1, user_req))
         db.commit()
     except HTTPException: raise
     except Exception as e:
@@ -737,9 +737,49 @@ async def sync_loop():
             logger.error(f"Error en sync_loop: {e}")
             await asyncio.sleep(60)
 
+# --- LIGAS ACTIVAS Y SUS FECHAS ---
+ligas_fechas_cache = {}
+
+async def sync_league_dates():
+    """Descarga de forma asincrónica las fechas de inicio y fin oficiales para cada liga."""
+    logger.info("Iniciando sync_league_dates...")
+    while True:
+        try:
+            for liga_key, liga_espn in LIGAS_ESPN.items():
+                url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga_espn}/scoreboard"
+                try:
+                    async with httpx.AsyncClient() as client:
+                        r = await client.get(url, timeout=10.0)
+                        if r.status_code == 200:
+                            data = r.json()
+                            leagues = data.get("leagues", [])
+                            if leagues:
+                                season = leagues[0].get("season", {})
+                                start_date = season.get("startDate", "")
+                                end_date = season.get("endDate", "")
+                                if start_date and end_date:
+                                    # Convert to YYYY-MM-DD
+                                    ligas_fechas_cache[liga_key] = {
+                                        "fecha_inicio": start_date.split("T")[0],
+                                        "fecha_fin": end_date.split("T")[0]
+                                    }
+                except Exception as e:
+                    logger.debug(f"Error fetching dates for {liga_key}: {e}")
+                # Esperar un poco entre ligas para no saturar
+                await asyncio.sleep(2)
+        except Exception as e:
+            logger.error(f"Error en sync_league_dates loop: {e}")
+        # Refrescar cada 24 horas
+        await asyncio.sleep(86400)
+
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(sync_loop())
+    asyncio.create_task(sync_league_dates())
+
+@app.get("/api/ligas/info")
+def get_ligas_info():
+    return {"estado": "exito", "ligas": ligas_fechas_cache}
 
 @app.get("/api/utils/server-time")
 def get_server_time():
@@ -938,7 +978,39 @@ async def obtener_posiciones(grupo_id: int, db: sqlite3.Connection = Depends(get
         tabla.append(u_stats)
     
     tabla.sort(key=lambda x: (x.puntos, x.mu, x.me), reverse=True)
-    tabla_dicts = [{"nombre": t.nombre, "correo": t.correo, "avatar": t.avatar, "puntos": t.puntos, "mu": t.mu, "me": t.me, "ga": t.ga, "gg": t.gg, "pe": t.pe} for t in tabla]
+    
+    # --- Calcular posiciones anteriores desde puntos_historial ---
+    # Buscar la fecha más reciente ANTERIOR a hoy
+    from datetime import date as _date_type
+    hoy_str = _date_type.today().isoformat()
+    prev_row = db.execute(
+        "SELECT DISTINCT fecha FROM puntos_historial WHERE grupo_id=? AND fecha < ? ORDER BY fecha DESC LIMIT 1",
+        (grupo_id, hoy_str)
+    ).fetchone()
+    
+    pos_anterior_map = {}  # correo -> posición anterior (1-indexed)
+    if prev_row:
+        fecha_anterior = prev_row[0]
+        prev_puntos = db.execute(
+            "SELECT correo_usuario, puntos FROM puntos_historial WHERE grupo_id=? AND fecha=?",
+            (grupo_id, fecha_anterior)
+        ).fetchall()
+        # Ordenar igual que la tabla actual
+        prev_sorted = sorted(prev_puntos, key=lambda r: r[1], reverse=True)
+        for idx, r in enumerate(prev_sorted):
+            pos_anterior_map[str(r[0])] = idx + 1
+    
+    tabla_dicts = []
+    for idx, t in enumerate(tabla):
+        pos_actual = idx + 1
+        pos_prev = pos_anterior_map.get(t.correo, None)
+        # cambio > 0 = subió, cambio < 0 = bajó, 0 = se mantuvo, None = nuevo
+        cambio = (pos_prev - pos_actual) if pos_prev is not None else None
+        tabla_dicts.append({
+            "nombre": t.nombre, "correo": t.correo, "avatar": t.avatar,
+            "puntos": t.puntos, "mu": t.mu, "me": t.me, "ga": t.ga, "gg": t.gg, "pe": t.pe,
+            "cambio": cambio
+        })
     
     # 4. Actualizar DB (Batching) y Caché
     batch_puntos = [(grupo_id, t.correo, t.puntos) for t in tabla]
