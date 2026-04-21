@@ -13,7 +13,7 @@ start "PollaAPI" cmd /k "uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 timeout /t 2 /nobreak >nul
 
 echo Iniciando tunnel ngrok...
-start "NgrokTunnel" cmd /k "ngrok http 8000"
+start "NgrokTunnel" cmd /k ".\ngrok.exe http 8000"
 
 timeout /t 3 /nobreak >nul
 
@@ -23,6 +23,6 @@ echo.
 echo ===============================================
 echo    POLLA FUTBOLERA INICIADO!
 echo ===============================================
-echo    Link: https://silklike-groomishly-marybeth.ngrok-free.dev/
-echo    Servidor: http://localhost:8000
+echo    Servidor Local: http://localhost:8000
+echo    Dashboard ngrok (para ver tu link publico): http://localhost:4040
 echo ===============================================
