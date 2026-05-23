@@ -607,10 +607,6 @@ def mis_grupos(db = Depends(get_db), user_req: str = Depends(get_current_user)):
     return {"grupos": grupos}
 
 
-    finally:
-        try: next(db_gen)
-        except StopIteration: pass
-
 # --- BACKGROUND SYNC LOOP ---
 async def sync_loop():
     """Tarea en segundo plano que actualiza ligas activas cada 60s o según sea necesario."""
@@ -1019,7 +1015,7 @@ def stats_personal(db = Depends(get_db), user_req: str = Depends(get_current_use
             "puntos_totales": puntos_totales,
             "grupos": n_grupos,
             "pronosticos": n_pronos,
-            "mensajes": n_msgs,
+            "mensajes": 0,
             "mejor_grupo": mejor_grupo,
             "mejor_puntos": mejor_puntos,
             "logros": logros
