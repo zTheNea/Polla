@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect # type: ignore
+from fastapi import FastAPI, HTTPException, Depends, Header, Request # type: ignore
 import logging
 
 logger = logging.getLogger("polla")
@@ -161,36 +161,6 @@ def _evict_cache():
         oldest_key = min(espn_cache, key=lambda k: espn_cache[k][1])
         del espn_cache[oldest_key]
 
-# --- WEBSOCKET MANAGER ---
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections = {}
-
-    async def connect(self, websocket: WebSocket, grupo_id: str, liga: str):
-        await websocket.accept()
-        if grupo_id not in self.active_connections:
-            self.active_connections[grupo_id] = {"sockets": [], "liga": liga}
-        self.active_connections[grupo_id]["sockets"].append(websocket)
-
-    def disconnect(self, websocket: WebSocket, grupo_id: str):
-        if grupo_id in self.active_connections:
-            if websocket in self.active_connections[grupo_id]["sockets"]:
-                self.active_connections[grupo_id]["sockets"].remove(websocket)
-            if not self.active_connections[grupo_id]["sockets"]:
-                del self.active_connections[grupo_id]
-
-    async def broadcast(self, message: dict, grupo_id: str):
-        if grupo_id in self.active_connections:
-            dead = []
-            for connection in self.active_connections[grupo_id]["sockets"]:
-                try:
-                    await connection.send_json(message)
-                except Exception:
-                    dead.append(connection)
-            for d in dead:
-                self.active_connections[grupo_id]["sockets"].remove(d)
-
-ws_manager = ConnectionManager()
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -638,15 +608,8 @@ async def sync_loop():
                                 score_new = [c.get('score') for c in ev.get('competitions', [{}])[0].get('competitors', [])]
                                 score_old = [c.get('score') for c in old_ev.get('competitions', [{}])[0].get('competitors', [])]
                                 if score_new != score_old:
-                                    logger.info(f"¡GOL DETECTADO en liga {liga}! Notificando...")
-                                    # Notificar a todos los grupos de esta liga
-                                    # Nota: En una app real, mapearíamos liga -> grupo_ids para eficiencia
-                                    # Por ahora, enviamos a todos los grupos activos que coincidan en liga
-                                    # Para esto necesitamos saber la liga de cada grupo con conexiones activas
-                                    for gid, gdata in list(ws_manager.active_connections.items()):
-                                        if gdata.get('liga') == liga:
-                                            if f"pos_{gid}" in posiciones_cache: del posiciones_cache[f"pos_{gid}"]
-                                            await ws_manager.broadcast({"tipo": "goal", "liga": liga, "partido_id": ev.get('id')}, gid)
+                                    logger.info(f"¡GOL DETECTADO en liga {liga}! Invalidando caché...")
+                                    posiciones_cache.clear()
             
             await asyncio.sleep(60)
         except Exception as e:
