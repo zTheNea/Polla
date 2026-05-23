@@ -1,13 +1,13 @@
-const CACHE_NAME = 'polla-v3.5';
+const CACHE_NAME = 'polla-v3.6';
 const ASSETS = [
-    '/',
-    '/index.html',
-    '/js/ui.js',
-    '/js/auth.js',
-    '/js/grupos.js',
-    '/js/stats.js',
-    '/js/chat.js',
-    '/js/ranking.js'
+    '/?v=3.6',
+    '/index.html?v=3.6',
+    '/js/ui.js?v=3.6',
+    '/js/auth.js?v=3.6',
+    '/js/grupos.js?v=3.6',
+    '/js/stats.js?v=3.6',
+    '/js/chat.js?v=3.6',
+    '/js/ranking.js?v=3.6'
 ];
 
 // CDNs ya no se pre-cachean para evitar servir versiones obsoletas
