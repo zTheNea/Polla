@@ -17,7 +17,8 @@ window.fetch = async function () {
         const token = localStorage.getItem('authToken');
         const correo = localStorage.getItem('usuarioCorreo');
         if (token && correo) {
-            config.headers['x-token'] = token;
+            config.headers['Authorization'] = `Bearer ${token}`;
+            // Mantener x-correo por compatibilidad si es necesario, o eliminarlo si todo usa el token
             config.headers['x-correo'] = correo;
         }
     }
@@ -90,6 +91,20 @@ function renderizarPantalla(idPantallaDestino) {
             if (idPantallaDestino === 'vista-dashboard' && typeof cargarMisGrupos === 'function') {
                 cargarMisGrupos();
                 if (typeof checkOnboarding === 'function') checkOnboarding();
+                
+                const pCodigo = localStorage.getItem('codigoInvitacionPendiente');
+                if (pCodigo) {
+                    localStorage.removeItem('codigoInvitacionPendiente');
+                    if (typeof abrirModal === 'function') abrirModal('modal-crear');
+                    setTimeout(() => {
+                        const inputCodigo = document.getElementById('codigo-unirse-input');
+                        if(inputCodigo && typeof unirseAGrupo === 'function') {
+                            inputCodigo.value = pCodigo;
+                            if (typeof mostrarToast === 'function') mostrarToast("⏳ Uniéndote a la invitación mágica...");
+                            setTimeout(() => unirseAGrupo(), 600);
+                        }
+                    }, 400);
+                }
             }
             // Hook: cargar estadísticas personales
             if (idPantallaDestino === 'vista-stats' && typeof cargarStatsPersonal === 'function') {
@@ -528,6 +543,13 @@ async function eliminarCuenta() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const codigoInv = urlParams.get('codigo');
+    if (codigoInv) {
+        localStorage.setItem('codigoInvitacionPendiente', codigoInv);
+        window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+    }
+
     if (!window.location.hash) {
         const destino = localStorage.getItem('usuarioCorreo') ? 'vista-dashboard' : 'vista-login';
         window.location.hash = destino;

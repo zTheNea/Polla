@@ -110,7 +110,7 @@ window.enviarMensajeChat = async function (e) {
         const res = await fetch('/api/chat/enviar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grupo_id: parseInt(gid), mensaje: msj })
+            body: JSON.stringify({ grupo_id: gid, mensaje: msj })
         });
         if (!res.ok) {
             throw new Error("Error en servidor");

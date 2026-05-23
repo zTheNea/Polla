@@ -27,8 +27,8 @@
 ```
 ┌────────────────────┐     ┌──────────────────┐     ┌─────────────┐
 │  Frontend (SPA)    │◄───►│  FastAPI Backend  │◄───►│  ESPN API   │
-│  Vanilla JS + TW   │     │  SQLite + WAL     │     │  Live Data  │
-│  index.html        │     │  main.py          │     └─────────────┘
+│  Vanilla JS + TW   │     │  Google Cloud Run │     │  Live Data  │
+│  index.html        │     │  Firestore DB     │     └─────────────┘
 │  js/*.js           │     │                   │
 │  PWA (sw.js)       │     │  WebSockets       │
 └────────────────────┘     └──────────────────┘
@@ -36,12 +36,12 @@
 
 | Componente | Tecnología |
 |---|---|
-| Backend | FastAPI + Uvicorn |
-| Base de Datos | SQLite (modo WAL) |
+| Backend | FastAPI + Uvicorn (Cloud Run) |
+| Base de Datos | Firebase Firestore |
 | Frontend | Vanilla JS + Tailwind CSS CDN |
 | Tiempo Real | WebSockets + HTTP Polling (fallback) |
 | Datos Deportivos | ESPN API (scoreboard + detalle) |
-| Seguridad | bcrypt + HMAC tokens + rate limiting |
+| Seguridad | bcrypt + JWT tokens + rate limiting |
 | PWA | Service Worker + Manifest |
 
 ---
@@ -132,7 +132,7 @@ PollaFutbolera/
 | `CORS_ORIGINS` | Orígenes permitidos (separados por coma) | No |
 | `PORT` | Puerto del servidor (default: 8000) | No |
 
-> ⚠️ Si `POLLA_SECRET` no está definida, se genera una clave temporal. Los tokens no sobrevivirán reinicios del servidor.
+> 💡 Si `POLLA_SECRET` no está definida, se generará una automáticamente y se almacenará en Firestore (`system/config`) para que las sesiones persistan sin configuración adicional.
 
 ---
 
@@ -158,21 +158,27 @@ pytest test_main.py::test_registrar_y_login -v
 
 ---
 
-## 🌐 Despliegue
+## 🌐 Despliegue Gratuito (Google Cloud)
 
-### Render / Railway
+Este proyecto está optimizado para funcionar 100% en la capa gratuita de **Google Cloud Run** y **Firebase Firestore**.
 
-1. Conectar el repositorio de GitHub.
-2. Configurar variables de entorno (`POLLA_SECRET`).
-3. Comando de inicio: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-4. La base de datos SQLite requiere un volumen persistente montado en `/data`.
-
-### Heroku
-
-El `Procfile` ya está configurado:
-```
-web: uvicorn main:app --host 0.0.0.0 --port $PORT
-```
+1. Asegúrate de tener instalado el [Google Cloud SDK](https://cloud.google.com/sdk/docs/install).
+2. Inicia sesión y selecciona tu proyecto de Firebase/Google Cloud:
+   ```bash
+   gcloud auth login
+   gcloud config set project TU_ID_DE_PROYECTO
+   ```
+3. Ejecuta el comando de despliegue. Es fundamental limitar a **1 instancia** para que los WebSockets en memoria compartida funcionen perfectamente de forma gratuita:
+   ```bash
+   gcloud run deploy polla-backend \
+     --source . \
+     --region us-central1 \
+     --allow-unauthenticated \
+     --max-instances 1 \
+     --memory 512Mi
+   ```
+   
+El frontend será servido automáticamente por FastAPI desde el mismo contenedor de Cloud Run.
 
 ---
 

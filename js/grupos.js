@@ -508,6 +508,7 @@ async function crearNuevoGrupo() {
             mostrarToast(`¡Grupo creado! Código: ${datos.codigo}`);
             cerrarModal('modal-crear');
             document.getElementById('nombre-grupo-input').value = '';
+            if (typeof confetti === 'function') confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
             cargarMisGrupos();
         } else {
             mostrarToast("⚠️ Error: " + traducirErrorAuth(datos.detail));
@@ -541,6 +542,7 @@ async function unirseAGrupo() {
             mostrarToast("¡Te has unido al grupo!");
             cerrarModal('modal-crear');
             document.getElementById('codigo-unirse-input').value = '';
+            if (typeof confetti === 'function') confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
             cargarMisGrupos();
         } else {
             const err = await respuesta.json();
@@ -622,9 +624,9 @@ async function cargarMisGrupos() {
                         : `<span class="text-base">⚽</span>`;
 
                     htmlGrupos += `
-                    <div class="bg-white dark:bg-gray-800 rounded-[2rem] p-6 shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col justify-between min-h-[180px] animar-entrada relative overflow-hidden">
+                    <div class="bg-white dark:bg-gray-800 rounded-[2rem] p-6 shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col justify-between min-h-[180px] animar-entrada relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-primary/20 dark:hover:shadow-primary/10">
                         
-                        <button onclick="accionRapidaGrupo(${g.id}, '${escJs(g.correo_creador)}')" title="${iconTitle}" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 bg-gray-50 dark:bg-gray-700/50 hover:bg-red-50 dark:hover:bg-red-900/30 p-2.5 rounded-full transition z-10 shadow-sm">
+                        <button onclick="accionRapidaGrupo('${escJs(g.id)}', '${escJs(g.correo_creador)}')" title="${iconTitle}" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 bg-gray-50 dark:bg-gray-700/50 hover:bg-red-50 dark:hover:bg-red-900/30 p-2.5 rounded-full transition z-10 shadow-sm">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">${iconSvg}</svg>
                         </button>
 
@@ -644,7 +646,7 @@ async function cargarMisGrupos() {
                             </div>
                         </div>
                         
-                        <button onclick="entrarSalaGrupo(${g.id}, '${escJs(g.nombre)}', '${escJs(g.codigo)}', '${escJs(g.liga)}', '${escJs(g.correo_creador)}')" class="mt-4 w-full bg-primary hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition">
+                        <button onclick="entrarSalaGrupo('${escJs(g.id)}', '${escJs(g.nombre)}', '${escJs(g.codigo)}', '${escJs(g.liga)}', '${escJs(g.correo_creador)}')" class="mt-4 w-full bg-primary hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition">
                             Entrar a la Sala
                         </button>
                     </div>
@@ -659,7 +661,8 @@ async function cargarMisGrupos() {
 function compartirCodigoDesdeDashboard(codigo, event) {
     if (event) event.stopPropagation(); // Evita que se abra la sala si se hace clic accidentalmente
     const urlApp = window.location.href.split('#')[0];
-    const texto = `¡Únete a mi Polla Futbolera! ⚽\nIngresa con este código: ${codigo}\n\nJuega aquí: ${urlApp}`;
+    const magicLink = `${urlApp}?codigo=${codigo}`;
+    const texto = `¡Únete a mi Polla Futbolera! ⚽\nHaz clic aquí para entrar automáticamente: ${magicLink}`;
     if (navigator.share) {
         navigator.share({ title: 'Polla Futbolera', text: texto });
     } else {
@@ -687,7 +690,7 @@ async function accionRapidaGrupo(grupo_id, correo_creador) {
             const res = await fetch('/api/grupos/eliminar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
+                body: JSON.stringify({ grupo_id: grupo_id })
             });
 
             if (res.ok) {
@@ -809,7 +812,8 @@ async function compartirGrupo() {
 
     // Extraemos el link raíz de tu aplicación para la invitación
     const linkApp = window.location.origin + window.location.pathname;
-    const textoMensaje = `¡Únete a mi Polla Futbolera! Entra a ${linkApp} y usa el código ${codigo}`;
+    const magicLink = `${linkApp}?codigo=${codigo}`;
+    const textoMensaje = `¡Únete a mi Polla Futbolera! Haz clic aquí para entrar automáticamente: ${magicLink}`;
 
     // Validar si el navegador del celular soporta la API nativa de compartir
     if (navigator.share) {
@@ -848,7 +852,7 @@ async function eliminarGrupoActual() {
         const res = await fetch('/api/grupos/eliminar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
+            body: JSON.stringify({ grupo_id: grupo_id })
         });
         if (res.ok) {
             mostrarToast("El grupo ha sido eliminado exitosamente. 🗑️");
@@ -875,7 +879,7 @@ async function salirGrupoActual() {
         const res = await fetch('/api/grupos/salir', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grupo_id: parseInt(grupo_id) })
+            body: JSON.stringify({ grupo_id: grupo_id })
         });
         if (res.ok) {
             mostrarToast("Has salido del grupo correctamente. 👋");
@@ -941,31 +945,41 @@ async function cargarPartidos() {
                 const delay = (index * 0.05).toFixed(2);
 
                 return `
-                <div onclick="verDetallesPartido('${p.id_partido}')" class="tarjeta-partido cursor-pointer animar-entrada bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 text-center hover:border-primary-200 transition-colors h-full flex flex-col justify-between relative" style="animation-delay: ${delay}s">
+                <div onclick="verDetallesPartido('${p.id_partido}')" class="tarjeta-partido cursor-pointer animar-entrada bg-white dark:bg-gray-800 rounded-[2rem] p-5 shadow-lg border border-gray-100 dark:border-gray-700 text-center hover:-translate-y-1 hover:shadow-xl hover:shadow-primary/20 dark:hover:shadow-primary/10 hover:border-primary-200 transition-all duration-300 h-full flex flex-col justify-between relative overflow-hidden" style="animation-delay: ${delay}s">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent"></div>
                     <div>
-                        ${p.id_partido === proximoId ? `<div class="absolute top-2 right-2 bg-orange-500 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide shadow-sm">🔜 Próximo</div>` : ''}
-                        <div class="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-wider">${f.toLocaleString('es-ES', { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-                        ${p.estado === 'pre' ? `<div class="text-[11px] font-black text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/30 py-1 px-3 rounded-full inline-block mb-3 temporizador-partido shadow-sm" data-fecha="${p.fecha}">Calculando...</div>` : '<div class="mb-3"></div>'}
-                        <div class="flex justify-between items-center w-full">
-                            <div class="flex-1 w-0 text-center">
-                                <img src="${logos[0]}" loading="lazy" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1">
-                                <span class="text-[10px] font-black truncate block px-1">${escHtml(p.local)}</span>
+                        ${p.id_partido === proximoId ? `<div class="absolute top-3 right-3 bg-gradient-to-r from-orange-400 to-orange-500 text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-wider shadow-md">🔜 Próximo</div>` : ''}
+                        
+                        <div class="text-[10px] text-gray-400 font-bold mb-3 uppercase tracking-widest">${f.toLocaleString('es-ES', { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                        
+                        <div class="flex justify-between items-center w-full bg-gray-50/50 dark:bg-gray-900/30 rounded-[1.5rem] py-3 px-1 border border-gray-50 dark:border-gray-700/50 shadow-inner">
+                            <div class="flex-1 w-0 text-center flex flex-col items-center">
+                                <div class="relative w-12 h-12 mb-2 flex items-center justify-center bg-white dark:bg-gray-800 rounded-full shadow-sm">
+                                    <img src="${logos[0]}" loading="lazy" class="w-8 h-8 object-contain">
+                                </div>
+                                <span class="text-[10px] font-black truncate block w-full px-1">${escHtml(p.local)}</span>
                             </div>
+                            
                             <div class="shrink-0 px-2 flex flex-col items-center justify-center">
                                 ${p.estado === 'pre'
-                        ? `<span class="bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs font-bold px-3 py-1 rounded-full mb-1">VS</span>`
-                        : `<div id="score-dash-${p.id_partido}" class="text-2xl sm:text-3xl font-black whitespace-nowrap ${p.estado === 'in' ? 'text-red-600' : 'text-gray-800 dark:text-white'}">${p.goles_l} - ${p.goles_v}</div>`
-                    }
+                                    ? `<span class="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-black px-3 py-1 rounded-full mb-1 tracking-widest shadow-inner">VS</span>
+                                       <div class="text-[9px] font-black text-orange-500 bg-orange-100 dark:bg-orange-900/30 py-0.5 px-2 rounded-full mt-1 temporizador-partido" data-fecha="${p.fecha}">--:--</div>`
+                                    : `<div id="score-dash-${p.id_partido}" class="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2 text-2xl sm:text-3xl font-black whitespace-nowrap shadow-inner ${p.estado === 'in' ? 'text-red-500 animate-pulse' : 'text-gray-800 dark:text-white'}">${p.goles_l} - ${p.goles_v}</div>
+                                       ${p.estado === 'in' ? `<div class="text-[9px] font-black text-red-500 bg-red-100 dark:bg-red-900/30 px-2 py-0.5 rounded-full mt-1 tracking-widest uppercase shadow-sm">EN VIVO</div>` : `<div class="text-[9px] font-bold text-gray-500 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full mt-1 tracking-widest uppercase">FIN</div>`}`
+                                }
                             </div>
-                            <div class="flex-1 w-0 text-center">
-                                <img src="${logos[1]}" loading="lazy" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1">
-                                <span class="text-[10px] font-black truncate block px-1">${escHtml(p.visitante)}</span>
+                            
+                            <div class="flex-1 w-0 text-center flex flex-col items-center">
+                                <div class="relative w-12 h-12 mb-2 flex items-center justify-center bg-white dark:bg-gray-800 rounded-full shadow-sm">
+                                    <img src="${logos[1]}" loading="lazy" class="w-8 h-8 object-contain">
+                                </div>
+                                <span class="text-[10px] font-black truncate block w-full px-1">${escHtml(p.visitante)}</span>
                             </div>
                         </div>
-
                     </div>
-                    <div id="pred-resumen-${p.id_partido}" class="mt-4 text-[11px] font-bold text-gray-400 bg-gray-50 dark:bg-gray-700/50 py-2 rounded-xl">
-                        ${p.estado === 'pre' ? 'Haz clic para ver detalles o pronosticar' : 'Ver detalles y estadísticas'}
+                    
+                    <div id="pred-resumen-${p.id_partido}" class="mt-4 text-[11px] font-bold ${p.estado === 'pre' ? 'text-primary bg-primary-50 dark:bg-primary-900/20' : 'text-gray-500 bg-gray-100 dark:bg-gray-800'} py-2.5 rounded-[1rem] shadow-sm transition-colors border border-transparent hover:border-primary/20">
+                        ${p.estado === 'pre' ? 'Haz clic para pronosticar' : 'Ver estadísticas del grupo'}
                     </div>
                 </div>`;
             }
@@ -1309,28 +1323,38 @@ async function verDetallesPartido(idPartido) {
     }
 
     let html = `
-        <div class="bg-white dark:bg-gray-800 rounded-[1.5rem] p-4 shadow-sm border border-gray-100 dark:border-gray-700 mb-3 animar-entrada relative overflow-hidden">
-            ${partido.estado === 'in' ? `<div class="absolute inset-0 bg-gradient-to-b from-red-50/50 to-transparent dark:from-red-900/10 pointer-events-none"></div>` : ''}
+        <div class="bg-gray-900 text-white rounded-[2rem] p-6 shadow-2xl mb-6 relative overflow-hidden ring-1 ring-white/10">
+            <div class="absolute inset-0 bg-gradient-to-br from-primary-900/40 via-gray-900 to-black pointer-events-none"></div>
+            ${partido.estado === 'in' ? `<div class="absolute inset-0 bg-gradient-to-t from-red-900/20 to-transparent pointer-events-none animate-pulse"></div>` : ''}
             
-            <div class="flex justify-between items-center relative z-10 w-full">
-                <div class="flex-1 w-0 text-center">
-                    <img src="${logos[0]}" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1 drop-shadow-md">
-                    <h3 class="font-black text-[11px] md:text-xs leading-tight break-words px-1">${escHtml(partido.local)}</h3>
+            <div class="flex justify-between items-center relative z-10 w-full mb-4">
+                <div class="flex-1 w-0 text-center flex flex-col items-center">
+                    <div class="w-16 h-16 md:w-20 md:h-20 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center mb-3 shadow-lg ring-1 ring-white/20">
+                        <img src="${logos[0]}" class="w-12 h-12 md:w-16 md:h-16 object-contain drop-shadow-lg">
+                    </div>
+                    <h3 class="font-black text-sm md:text-base leading-tight px-1 uppercase tracking-wide">${escHtml(partido.local)}</h3>
                 </div>
                 
-                <div class="shrink-0 px-2 text-center flex flex-col items-center justify-center">
-                    <div class="mb-1.5">${badgeEstado}</div>
+                <div class="shrink-0 px-4 text-center flex flex-col items-center justify-center">
+                    <div class="mb-3">${badgeEstado}</div>
                     ${partido.estado === 'pre'
-            ? `<span class="text-2xl md:text-3xl font-black text-gray-300 dark:text-gray-600 leading-none">VS</span>`
-            : `<div id="score-main-live" class="text-3xl md:text-4xl font-black leading-none whitespace-nowrap ${partido.estado === 'in' ? 'text-red-600 drop-shadow-sm' : 'text-gray-800 dark:text-white'}">${partido.goles_l} - ${partido.goles_v}</div>`
-        }
+                        ? `<span class="text-3xl md:text-5xl font-black text-gray-500/50 leading-none tracking-tighter">VS</span>`
+                        : `<div id="score-main-live" class="text-5xl md:text-6xl font-black leading-none whitespace-nowrap drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)] ${partido.estado === 'in' ? 'text-red-500' : 'text-white'}">${partido.goles_l} <span class="text-gray-500 text-3xl mx-1">-</span> ${partido.goles_v}</div>`
+                    }
                 </div>
 
-                <div class="flex-1 w-0 text-center">
-                    <img src="${logos[1]}" class="w-10 h-10 md:w-12 md:h-12 mx-auto mb-1 drop-shadow-md">
-                    <h3 class="font-black text-[11px] md:text-xs leading-tight break-words px-1">${escHtml(partido.visitante)}</h3>
+                <div class="flex-1 w-0 text-center flex flex-col items-center">
+                    <div class="w-16 h-16 md:w-20 md:h-20 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center mb-3 shadow-lg ring-1 ring-white/20">
+                        <img src="${logos[1]}" class="w-12 h-12 md:w-16 md:h-16 object-contain drop-shadow-lg">
+                    </div>
+                    <h3 class="font-black text-sm md:text-base leading-tight px-1 uppercase tracking-wide">${escHtml(partido.visitante)}</h3>
                 </div>
             </div>
+            
+            <div id="event-main-live" class="relative z-10 text-center text-[11px] font-bold text-gray-400 mt-2 min-h-[1.5rem] bg-black/30 rounded-full py-1.5 px-4 w-fit mx-auto">
+                ${partido.estado === 'in' && partido.ultimo_evento ? `⚽ <strong class="text-white">Última Jugada:</strong> ${escHtml(partido.ultimo_evento)}` : 'Estadísticas y Predicciones'}
+            </div>
+        </div>
             
             ${partido.prob_l ? `
             <div class="mt-4 w-full px-2" title="Pronósticos de Match Win Probabilities">
@@ -1808,7 +1832,7 @@ async function guardarUnPronostico(idPartido, btn) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                grupo_id: parseInt(gid),
+                grupo_id: gid,
                 pronosticos: [{ id_partido: idPartido, goles_local: parseInt(valL), goles_visitante: parseInt(valV) }]
             })
         });
@@ -1840,6 +1864,8 @@ async function guardarUnPronostico(idPartido, btn) {
         btn.innerHTML = `<span>✅</span><span class="hidden sm:inline ml-1">GUARDADO</span>`;
         btn.classList.replace('bg-primary', 'bg-green-600');
         btn.classList.replace('hover:bg-blue-700', 'hover:bg-green-700');
+
+        if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Haptic feedback
 
         mostrarToast("✅ ¡Pronóstico guardado!");
 

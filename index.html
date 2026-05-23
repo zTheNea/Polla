@@ -39,6 +39,7 @@
         rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <script>
         // Aplicar tema guardado inmediatamente para evitar FOUC
         (function() {
@@ -241,8 +242,13 @@
     </div>
 
     <div id="vista-login"
-        class="pantalla activa flex-col items-center justify-center min-h-screen p-4 sm:p-6 w-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
-        <div class="text-center mb-6 sm:mb-8 mt-8 sm:mt-0">
+        class="pantalla activa flex-col items-center justify-center min-h-screen p-4 sm:p-6 w-full bg-gradient-to-br from-primary-50 via-gray-50 to-white dark:from-gray-900 dark:via-primary-900/10 dark:to-gray-900 overflow-hidden relative">
+        
+        <!-- Orbes de luz flotantes (Mesh background effect) -->
+        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary-200/40 dark:bg-primary-900/30 blur-[100px] pointer-events-none animate-pulse" style="animation-duration: 8s;"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-secondary/20 dark:bg-secondary/10 blur-[120px] pointer-events-none animate-pulse" style="animation-duration: 10s;"></div>
+
+        <div class="text-center mb-6 sm:mb-8 mt-8 sm:mt-0 relative z-10">
             <h1
                 class="text-4xl sm:text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-primary to-primary-700 drop-shadow-sm leading-tight">
                 Polla Futbolera</h1>
@@ -251,7 +257,7 @@
         </div>
 
         <div
-            class="bg-white dark:bg-gray-800 p-6 sm:p-10 rounded-[2rem] shadow-2xl w-full max-w-[90%] sm:max-w-md border border-gray-100 dark:border-gray-700 relative overflow-hidden">
+            class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-2xl p-6 sm:p-10 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] w-full max-w-[90%] sm:max-w-md border border-white/50 dark:border-gray-700/50 relative z-10">
             <div id="panel-login" class="form-panel">
                 <h2 class="text-3xl font-black text-gray-800 dark:text-white mb-2 tracking-tight text-center">
                     ¡Bienvenido! ⚽</h2>
@@ -264,14 +270,14 @@
                         <label
                             class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 ml-1">Usuario</label>
                         <input id="nombre-input" type="text" placeholder="Ej: Lionel Messi" minlength="3" maxlength="20"
-                            class="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white dark:placeholder-gray-400">
+                            class="w-full px-5 py-4 rounded-2xl bg-gray-50/50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary focus:ring-4 focus:ring-primary/20 outline-none transition-all font-medium text-gray-800 dark:text-white dark:placeholder-gray-400 shadow-inner">
                     </div>
 
                     <div>
                         <label class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 ml-1">Correo
                             Electrónico</label>
                         <input id="correo-input" type="email" required placeholder="tu@correo.com"
-                            class="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white dark:placeholder-gray-400">
+                            class="w-full px-5 py-4 rounded-2xl bg-gray-50/50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary focus:ring-4 focus:ring-primary/20 outline-none transition-all font-medium text-gray-800 dark:text-white dark:placeholder-gray-400 shadow-inner">
                     </div>
 
                     <div>
@@ -279,7 +285,7 @@
                             class="block text-sm font-bold text-gray-700 dark:text-gray-200 mb-2 ml-1">Contraseña</label>
                         <div class="relative">
                             <input id="password-input" type="password" required placeholder="••••••••" maxlength="72"
-                                class="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary outline-none transition font-medium text-gray-800 dark:text-white dark:placeholder-gray-400 pr-12"
+                                class="w-full px-5 py-4 rounded-2xl bg-gray-50/50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:bg-white dark:focus:bg-gray-800 focus:border-primary focus:ring-4 focus:ring-primary/20 outline-none transition-all font-medium text-gray-800 dark:text-white dark:placeholder-gray-400 pr-12 shadow-inner"
                                 oninput="validarPasswordDinamicamente()">
                             <button type="button" onclick="togglePasswordVisibility()"
                                 class="absolute inset-y-0 right-0 flex items-center pr-4 text-gray-400 hover:text-primary dark:hover:text-primary-700 transition-colors focus:outline-none">
@@ -430,7 +436,7 @@
                             </div>
                             <label class="relative inline-flex items-center cursor-pointer shrink-0">
                                 <input type="checkbox" id="check-alertas" class="sr-only peer" onchange="verificarToggleNotificaciones()">
-                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:duration-300 after:ease-[cubic-bezier(0.175,0.885,0.32,1.275)] dark:border-gray-600 peer-checked:bg-primary shadow-inner"></div>
                             </label>
                         </div>
                         
