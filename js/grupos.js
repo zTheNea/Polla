@@ -324,7 +324,6 @@ document.addEventListener('click', (e) => {
 window.limpiarCachePronosticos = function () {
     misPronosticosCache = null;
     misPronosticosCacheGid = null;
-    if (window.limpiarCacheChat) window.limpiarCacheChat();
 };
 
 // --- UTILIDADES DE SEGURIDAD Y TIEMPO (v2.0) ---
@@ -739,7 +738,6 @@ function entrarSalaGrupo(id, nombre, codigo, liga, correo_creador) {
     localStorage.setItem('grupoActivoCreador', correo_creador);
 
     window.limpiarCachePronosticos(); // Invalida el cache al cambiar de grupo
-    detenerPollingChat();
 
     // 2. Navegar. El hook 'vista-grupo' en ui.js se encargará de la inicialización real
     cambiarPantalla('vista-grupo');
@@ -763,29 +761,11 @@ function inicializarVistaGrupo() {
 
     // Cargar datos
     cargarPartidos();
-    iniciarPollingChat();
     poblarListaAvatares();
     if (typeof inicializarStats === 'function') inicializarStats();
 }
 
-function toggleChat() {
-    const p = document.getElementById('panel-chat');
-    p.classList.toggle('translate-x-full');
-    if (!p.classList.contains('translate-x-full')) {
-        // Resetear contador de no leídos
-        window._chatUnreadCount = 0;
-        const badge = document.getElementById('notif-chat');
-        if (badge) {
-            badge.classList.add('hidden');
-            badge.innerText = '';
-        }
-        cargarChat();
-        setTimeout(() => {
-            const c = document.getElementById('chat-mensajes-container');
-            c.scrollTop = c.scrollHeight;
-        }, 300);
-    }
-}
+
 // Función movida al inicio para visibilidad global
 
 function poblarListaAvatares() {

@@ -261,10 +261,6 @@ class GuardarPronosticosRequest(BaseModel):
     grupo_id: str
     pronosticos: List[PronosticoIndividual]
 
-class ChatMensaje(BaseModel):
-    grupo_id: str
-    mensaje: str = Field(..., min_length=1, max_length=200)
-
 @dataclass
 class UserStats:
     nombre: str
@@ -312,7 +308,6 @@ LIGAS_ESPN = {
 BADGES = {
     "primer_pronostico": {"nombre": "Primer Gol", "emoji": "⚽", "descripcion": "Hiciste tu primer pronóstico"},
     "veterano": {"nombre": "Veterano", "emoji": "🎖️", "descripcion": "Más de 50 pronósticos realizados"},
-    "social": {"nombre": "Socialite", "emoji": "💬", "descripcion": "Enviaste 50+ mensajes en el chat"},
     "explorador": {"nombre": "Explorador", "emoji": "🌍", "descripcion": "Te uniste a 3 o más grupos"},
     "perfeccionista": {"nombre": "Perfeccionista", "emoji": "🎯", "descripcion": "Acertaste un marcador exacto único (MU)"},
     "leyenda": {"nombre": "Leyenda", "emoji": "👑", "descripcion": "Alcanzaste 50+ puntos en un grupo"},
@@ -333,9 +328,6 @@ def verificar_y_otorgar_logros(db, correo: str):
         n_pronos = db.collection('pronosticos').where('correo_usuario', '==', correo).count().get()[0][0].value
         if n_pronos >= 1: _otorgar(db, correo, "primer_pronostico")
         if n_pronos >= 50: _otorgar(db, correo, "veterano")
-        
-        n_msgs = db.collection('chat_mensajes').where('correo_usuario', '==', correo).count().get()[0][0].value
-        if n_msgs >= 50: _otorgar(db, correo, "social")
         
         n_grupos = db.collection('grupos').where('miembros', 'array_contains', correo).count().get()[0][0].value
         if n_grupos >= 3: _otorgar(db, correo, "explorador")
@@ -505,9 +497,7 @@ def eliminar_cuenta(req: CuentaEliminar, db = Depends(get_db), user_req: str = D
         pronos = db.collection('pronosticos').where('correo_usuario', '==', user_req).stream()
         for p in pronos: p.reference.delete()
         
-        chats = db.collection('chat_mensajes').where('correo_usuario', '==', user_req).stream()
-        for c in chats: c.reference.delete()
-        
+
         historial = db.collection('puntos_historial').where('correo_usuario', '==', user_req).stream()
         for h in historial: h.reference.delete()
         
@@ -599,9 +589,7 @@ def eliminar_grupo(req: GrupoAccion, db = Depends(get_db), user_req: str = Depen
     gid_str = str(req.grupo_id)
     pronos = db.collection('pronosticos').where('grupo_id', '==', gid_str).stream()
     for p in pronos: p.reference.delete()
-    
-    chats = db.collection('chat_mensajes').where('grupo_id', '==', gid_str).stream()
-    for c in chats: c.reference.delete()
+
     
     puntos = db.collection('puntos_historial').where('grupo_id', '==', gid_str).stream()
     for p in puntos: p.reference.delete()
@@ -618,114 +606,7 @@ def mis_grupos(db = Depends(get_db), user_req: str = Depends(get_current_user)):
         grupos.append(gd)
     return {"grupos": grupos}
 
-@app.post("/api/chat/enviar")
-@limiter.limit("20/minute")
-async def enviar_mensaje(request: Request, m: ChatMensaje, db = Depends(get_db), user_req: str = Depends(get_current_user)):
-    grupo_doc = db.collection('grupos').document(m.grupo_id).get()
-    if not grupo_doc.exists or user_req not in grupo_doc.to_dict().get('miembros', []):
-        raise HTTPException(status_code=403, detail="No eres miembro de este grupo.")
-    
-    mensaje_seguro = escape_html(m.mensaje)
-    user_doc = db.collection('usuarios').document(user_req).get()
-    user_data = user_doc.to_dict() if user_doc.exists else {}
-    fecha_now = datetime.now(timezone.utc)
-    
-    msg_data = {
-        'grupo_id': m.grupo_id,
-        'correo_usuario': user_req,
-        'mensaje': mensaje_seguro,
-        'fecha': fecha_now.isoformat()
-    }
-    
-    msg_ref = db.collection('chat_mensajes').document()
-    msg_ref.set(msg_data)
-    verificar_y_otorgar_logros(db, user_req)
 
-    mensaje_enviar = {
-        'id': msg_ref.id,
-        'grupo_id': m.grupo_id,
-        'correo_usuario': user_req,
-        'mensaje': mensaje_seguro,
-        'fecha': fecha_now.isoformat(),
-        'nombre': user_data.get('nombre', 'Usuario'),
-        'avatar': user_data.get('avatar', '👤')
-    }
-    await ws_manager.broadcast({"tipo": "chat", "mensaje": mensaje_enviar}, m.grupo_id)
-    return {"mensaje": "Enviado"}
-
-@app.get("/api/chat/{grupo_id}")
-def obtener_chat(grupo_id: str, since: Optional[str] = None, db = Depends(get_db), user_req: str = Depends(get_current_user)):
-    grupo_doc = db.collection('grupos').document(grupo_id).get()
-    if not grupo_doc.exists or user_req not in grupo_doc.to_dict().get('miembros', []): 
-        raise HTTPException(status_code=403, detail="No eres miembro de este grupo.")
-    
-    mensajes_ref = db.collection('chat_mensajes').where('grupo_id', '==', grupo_id)
-    
-    if since:
-        # En Firebase las queries de desigualdad sobre 'fecha' requieren índice si ordenamos
-        mensajes_query = mensajes_ref.where('fecha', '>', since).order_by('fecha', direction=firestore.Query.ASCENDING).stream()
-    else:
-        mensajes_query = mensajes_ref.order_by('fecha', direction=firestore.Query.DESCENDING).limit(50).stream()
-        
-    mensajes = []
-    user_cache_local = {}
-    for msg in mensajes_query:
-        md = msg.to_dict()
-        md['id'] = msg.id
-        c_u = md.get('correo_usuario')
-        if c_u not in user_cache_local:
-            u_doc = db.collection('usuarios').document(c_u).get()
-            user_cache_local[c_u] = u_doc.to_dict() if u_doc.exists else {}
-        md['nombre'] = user_cache_local[c_u].get('nombre', 'Usuario')
-        md['avatar'] = user_cache_local[c_u].get('avatar', '👤')
-        mensajes.append(md)
-        
-    if not since:
-        mensajes.reverse()
-    return {"mensajes": mensajes}
-
-@app.websocket("/api/ws/chat/{grupo_id}")
-async def websocket_chat_endpoint(websocket: WebSocket, grupo_id: str, token: Optional[str] = None):
-    await websocket.accept()
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
-        auth_token = token
-        if not auth_token:
-            try:
-                first_msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-                if first_msg.startswith("auth:"):
-                    auth_token = first_msg[5:]
-            except Exception: pass
-        if not auth_token:
-            await websocket.close(code=1008); return
-
-        try:
-            payload = jwt.decode(auth_token, SECRET_KEY, algorithms=["HS256"])
-            correo_usuario = payload.get("sub")
-            if not correo_usuario:
-                await websocket.close(code=1008); return
-        except Exception:
-            await websocket.close(code=1008); return
-        grupo_doc = db.collection('grupos').document(grupo_id).get()
-        if not grupo_doc.exists or correo_usuario not in grupo_doc.to_dict().get('miembros', []):
-            await websocket.close(code=1008); return
-
-        g_data = grupo_doc.to_dict()
-        if g_data.get('liga'): ACTIVE_LEAGUES.add(g_data.get('liga'))
-
-        if grupo_id not in ws_manager.active_connections:
-            ws_manager.active_connections[grupo_id] = {"sockets": [], "liga": g_data.get('liga', '')}
-        ws_manager.active_connections[grupo_id]["sockets"].append(websocket)
-        await websocket.send_text("authenticated")
-
-        while True:
-            data = await websocket.receive_text()
-            if data == "ping": await websocket.send_text("pong")
-    except WebSocketDisconnect:
-        ws_manager.disconnect(websocket, grupo_id)
-    except Exception:
-        ws_manager.disconnect(websocket, grupo_id)
     finally:
         try: next(db_gen)
         except StopIteration: pass
@@ -1107,7 +988,6 @@ def stats_personal(db = Depends(get_db), user_req: str = Depends(get_current_use
         n_pronos = db.collection('pronosticos').where('correo_usuario', '==', user_req).count().get()[0][0].value
         grupos_ids = [g.id for g in db.collection('grupos').where('miembros', 'array_contains', user_req).stream()]
         n_grupos = len(grupos_ids)
-        n_msgs = db.collection('chat_mensajes').where('correo_usuario', '==', user_req).count().get()[0][0].value
         
         puntos_totales = 0
         mejor_grupo = None

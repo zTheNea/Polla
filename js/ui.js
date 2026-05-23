@@ -129,13 +129,9 @@ function renderizarPantalla(idPantallaDestino) {
                 }
             }
 
-            // Hook de limpieza: Detener el polling en vivo y chat si salimos de las vistas que lo necesitan
+            // Hook de limpieza: Detener el polling en vivo si salimos de las vistas que lo necesitan
             if (idPantallaDestino !== 'vista-grupo' && idPantallaDestino !== 'vista-partido') {
                 if (typeof detenerPollingLive === 'function') detenerPollingLive();
-                if (typeof detenerPollingChat === 'function') detenerPollingChat();
-            } else if (idPantallaDestino === 'vista-partido') {
-                // Si vamos al partido, mantenemos live pero paramos chat (ahorra batería)
-                if (typeof detenerPollingChat === 'function') detenerPollingChat();
             }
             
             // Fuga de datos mitigada: siempre forzar destrucción del poller de detalle al salir
